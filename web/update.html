@@ -1,0 +1,130 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="AI Test Agent-api-origin" content="__AI Test Agent_API_ORIGIN__" />
+    <title>Update test design — AI Test Agent</title>
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="any" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="nav-flow">
+        <a href="/">Home</a>
+        <span class="nav-sep">·</span>
+        <a href="create.html">Create new test design</a>
+      </nav>
+      <header>
+        <h1>Update test design</h1>
+        <p>
+          Based on <strong>UPDATED_CSV_FLOW.md</strong>. For Step 1, enter the CSV <strong>file name</strong> and click <strong>Add</strong> — the file is copied from <strong>Downloads</strong> into the project folder <code>Updated test cases</code> (set the AI Test Agent path first). <strong>Run</strong> uses this machine (where <code>npm run web</code> runs).
+        </p>
+        <div id="cursorBrowserBanner" class="banner-warn" hidden>
+          <strong>Note:</strong> Cursor&rsquo;s embedded browser often <em>cannot reach</em> the local <code>npm run web</code> server (404).
+          Open this URL in <strong>Chrome</strong> or <strong>Edge</strong>.
+          <button type="button" class="btn btn-secondary" id="openExternalBrowserBtn">Open in system browser</button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Parameters</h2>
+        <div class="grid">
+          <div id="pathRow">
+            <label for="projectPath">Project path</label>
+            <div class="input-with-btn">
+              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\AI Test Agent" autocomplete="off" />
+              <button type="button" class="btn btn-secondary" id="pickProjectBtn" title="Native folder dialog (Windows / macOS / zenity)">
+                Browse folder…
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top: 1rem">
+          <div>
+            <label for="mainSection">Steps</label>
+            <select id="mainSection">
+              <option value="2" selected>Update test cases/checklists</option>
+              <option value="4">Generate CSV file + automate import into Azure DevOps</option>
+            </select>
+          </div>
+          <div id="genModeRow">
+            <label for="generateMode">Generation mode</label>
+            <select id="generateMode">
+              <option value="checklist">Checklist</option>
+              <option value="testcases">Test cases</option>
+              <option value="auto" selected>Auto (CSV order: test cases + checklists per block rules)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid two" style="margin-top: 1rem">
+          <div id="jiraRow">
+            <label for="jiraKey">Jira Key</label>
+            <input type="text" id="jiraKey" value="FER-123" autocomplete="off" />
+          </div>
+          <div id="csvFileRow">
+            <label for="updatedFlowInputFile">CSV file name (required)</label>
+            <div class="input-with-btn">
+              <input type="text" id="updatedFlowInputFile" placeholder="e.g. my-tests" autocomplete="off" />
+              <button type="button" class="btn btn-secondary" id="csvAddBtn" title="Copy this CSV from Downloads into Updated test cases (needs project path)">
+                Add
+              </button>
+            </div>
+            <div class="csv-lookup-feedback" aria-live="polite">
+              <span id="csvDownloadsOk" class="csv-lookup-ok" hidden aria-label="CSV added to Updated test cases">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"
+                  />
+                </svg>
+                <span class="csv-lookup-ok-text">CSV added to Updated test cases</span>
+              </span>
+              <span id="csvDownloadsErr" class="csv-lookup-err" hidden></span>
+            </div>
+          </div>
+        </div>
+
+        <div id="runRow" class="run-row">
+          <button type="button" class="btn btn-run" id="runStepBtn">Run</button>
+          <span id="runHint" class="run-hint">Set a real path to the folder that contains agent-update-csv.js</span>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top: 1rem">
+        <div id="runOutputWrap" class="run-output-wrap" hidden>
+          <h4 id="runOutputTitle" class="run-output-title">Run log — Step 1 (live, same order as terminal)</h4>
+          <p id="runOutputHint" class="run-output-hint" hidden></p>
+          <pre id="runOutputStep1" class="run-output"></pre>
+          <pre id="runOutputStep2" class="run-output" hidden></pre>
+        </div>
+
+        <div class="output-head">
+          <h3 id="outTitle">Updated flow — Step 1</h3>
+        </div>
+
+        <div id="bashBlock" class="code-block">
+          <h4>Bash</h4>
+          <pre id="bashOut"></pre>
+          <button type="button" class="btn" id="copyBash">Copy Bash</button>
+        </div>
+
+        <div id="psBlock" class="code-block">
+          <h4>PowerShell</h4>
+          <pre id="psOut"></pre>
+          <button type="button" class="btn" id="copyPs">Copy PowerShell</button>
+        </div>
+
+        <p id="extraNote" class="note" hidden></p>
+      </section>
+
+      <footer>
+        <a href="/">Home</a> · Source: <a href="/UPDATED_CSV_FLOW.md" target="_blank" rel="noopener noreferrer">UPDATED_CSV_FLOW.md</a> · <code>npm run web</code>
+      </footer>
+    </div>
+
+    <div id="toast" hidden>Copied</div>
+    <script src="update-app.js"></script>
+  </body>
+</html>

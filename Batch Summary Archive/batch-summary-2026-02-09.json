@@ -1,0 +1,38 @@
+﻿{
+  "total": 6,
+  "processed": 1,
+  "skipped": 5,
+  "failed": 0,
+  "details": [
+    {
+      "issueKey": "PROJ-111",
+      "status": "success",
+      "generated": 3
+    },
+    {
+      "issueKey": "PROJ-67",
+      "status": "skipped",
+      "reason": "Already has BDD/TC"
+    },
+    {
+      "issueKey": "PROJ-95",
+      "status": "skipped",
+      "reason": "Already has BDD/TC"
+    },
+    {
+      "issueKey": "PROJ-5",
+      "status": "skipped",
+      "reason": "Already has BDD/TC"
+    },
+    {
+      "issueKey": "PROJ-4",
+      "status": "skipped",
+      "reason": "Already has BDD/TC"
+    },
+    {
+      "issueKey": "PROJ-110",
+      "status": "skipped",
+      "reason": "Already has BDD/TC"
+    }
+  ]
+}

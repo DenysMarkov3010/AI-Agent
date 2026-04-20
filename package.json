@@ -1,0 +1,42 @@
+{
+  "name": "demoagent",
+  "version": "1.0.0",
+  "description": "QA MCP Agent for Jira/Confluence documentation-based test generation",
+  "main": "agent-docs.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "mcp-server": "node mcp-server.js",
+    "batch": "node agent-batch.js",
+    "ado:list-plans": "node ado-plan-tools.js list",
+    "ado:list-suites": "node ado-plan-tools.js suites",
+    "ado:export-plan": "node ado-plan-tools.js export",
+    "ado:export-tag-csv": "node ado-export-tag-csv.js",
+    "ado:sync-csv": "node ado-sync-csv.js",
+    "update-csv-flow": "node agent-update-csv.js",
+    "csv:from-downloads": "node copy-csv-from-downloads.js",
+    "web": "node web-ui-server.js",
+    "shortcut": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
+    "build:icon": "node scripts/build-icon.js"
+  },
+  "keywords": [
+    "qa",
+    "testing",
+    "jira",
+    "confluence",
+    "mcp",
+    "test-generation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.4",
+    "dotenv": "^17.2.3",
+    "marked": "^18.0.0",
+    "node-fetch": "^3.3.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "png-to-ico": "^2.1.8"
+  }
+}

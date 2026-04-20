@@ -1,0 +1,28 @@
+﻿{
+  "total": 4,
+  "processed": 0,
+  "skipped": 2,
+  "failed": 2,
+  "details": [
+    {
+      "issueKey": "PROJ-95",
+      "status": "skipped",
+      "reason": "Already has checklist"
+    },
+    {
+      "issueKey": "PROJ-4",
+      "status": "failed",
+      "error": "Validation failed: Missing required labels"
+    },
+    {
+      "issueKey": "PROJ-68",
+      "status": "failed",
+      "error": "Validation failed: Missing required labels, Missing description"
+    },
+    {
+      "issueKey": "PROJ-110",
+      "status": "skipped",
+      "reason": "Already has checklist"
+    }
+  ]
+}

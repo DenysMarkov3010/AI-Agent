@@ -1,0 +1,20 @@
+name: ai-qa-agent
+description: Autonomous QA agent for discovery, structuring, and execution
+
+tools:
+  - name: browser
+    type: playwright
+  - name: file
+    type: filesystem
+  - name: llm
+    type: openrouter
+  - name: memory
+    type: local
+
+permissions:
+  browser:
+    allow: true
+  file:
+    allow: true
+  llm:
+    allow: true

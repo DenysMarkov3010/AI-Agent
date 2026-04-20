@@ -1,0 +1,143 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="AI Test Agent-api-origin" content="__AI Test Agent_API_ORIGIN__" />
+    <title>Create new test design — AI Test Agent</title>
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="any" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <nav class="nav-flow">
+        <a href="/">Home</a>
+        <span class="nav-sep">·</span>
+        <a href="update.html">Update test design</a>
+      </nav>
+      <header>
+        <h1>Create new test design</h1>
+        <p>
+          Based on <strong>FULL_FLOW_GUIDE.md</strong>. For <strong>Step 1</strong> and <strong>Step 2</strong> (Generate CSV), click <strong>Run</strong> — same machine as the terminal where <code>npm run web</code> runs.
+        </p>
+        <div id="cursorBrowserBanner" class="banner-warn" hidden>
+          <strong>Note:</strong> Cursor&rsquo;s embedded browser often <em>cannot reach</em> the local <code>npm run web</code> server (404). Then <strong>Browse folder</strong> and <strong>Run</strong> will not work.
+          Open this URL in <strong>Chrome</strong> or <strong>Edge</strong>.
+          <button type="button" class="btn btn-secondary" id="openExternalBrowserBtn">Open in system browser</button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <h2>Parameters</h2>
+        <div class="grid">
+          <div id="pathRow">
+            <label for="projectPath">Project path</label>
+            <div class="input-with-btn">
+              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\AI Test Agent" autocomplete="off" />
+              <button type="button" class="btn btn-secondary" id="pickProjectBtn" title="Native folder dialog (Windows / macOS / zenity)">
+                Browse folder…
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="adoExportTagRow" class="ado-export-tag-block">
+          <label for="adoExportTag">Export Test cases by tag (optional)</label>
+          <div class="input-with-btn">
+            <input type="text" id="adoExportTag" placeholder="e.g. Regression" autocomplete="off" />
+            <button type="button" class="btn btn-secondary" id="adoExportTagBtn">Export</button>
+          </div>
+          <div id="adoExportTagProgress" class="ado-export-progress-wrap" hidden>
+            <div class="ado-export-progress-track">
+              <div class="ado-export-progress-bar"></div>
+            </div>
+          </div>
+          <p id="adoExportTagOk" class="ado-export-tag-ok" hidden>Test cases added in Test cases folder</p>
+          <p id="adoExportTagErr" class="ado-export-tag-err" hidden></p>
+        </div>
+
+        <div class="grid" style="margin-top: 1rem">
+          <div>
+            <label for="mainSection">Steps</label>
+            <select id="mainSection">
+              <option value="2" selected>Create test cases/checklists</option>
+              <option value="4">Generate CSV file + automate import into Azure DevOps</option>
+              <option value="5">(Optional) Manual import into Azure DevOps</option>
+            </select>
+          </div>
+          <div id="day1Row">
+            <label for="day1Scope">Day 1 scope</label>
+            <select id="day1Scope">
+              <option value="2a" selected>Single Jira ticket</option>
+              <option value="2b">Multiple Jira tickets</option>
+            </select>
+          </div>
+          <div id="genModeRow">
+            <label for="generateMode">Generation mode</label>
+            <select id="generateMode">
+              <option value="checklist" selected>Checklist (default)</option>
+              <option value="testcases">Test cases</option>
+            </select>
+          </div>
+          <div id="day2Row" hidden>
+            <label for="day2Scope">Day 2 scope</label>
+            <select id="day2Scope">
+              <option value="4a" selected>Approve Single Jira ticket</option>
+              <option value="4b">Approve Multiple Jira tickets</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid two" style="margin-top: 1rem">
+          <div id="jiraRow">
+            <label for="jiraKey">Jira Key</label>
+            <input type="text" id="jiraKey" value="FER-123" autocomplete="off" />
+          </div>
+          <div id="keywordsRow">
+            <label for="relatedKeywords">Related Keywords (optional)</label>
+            <input type="text" id="relatedKeywords" placeholder="comma-separated" autocomplete="off" />
+          </div>
+        </div>
+
+        <div id="runRow" class="run-row" hidden>
+          <button type="button" class="btn btn-run" id="runStepBtn">Run</button>
+          <span id="runHint" class="run-hint">Set a real path to the folder that contains agent-docs.js</span>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top: 1rem">
+        <div id="runOutputWrap" class="run-output-wrap" hidden>
+          <h4 id="runOutputTitle" class="run-output-title">Run log (live, same order as terminal)</h4>
+          <p id="runOutputHint" class="run-output-hint" hidden></p>
+          <pre id="runOutputStep1" class="run-output"></pre>
+          <pre id="runOutputStep2" class="run-output" hidden></pre>
+        </div>
+
+        <div class="output-head">
+          <h3 id="outTitle">Step 1 — 2A Single issue</h3>
+        </div>
+
+        <div id="bashBlock" class="code-block">
+          <h4>Bash</h4>
+          <pre id="bashOut"></pre>
+          <button type="button" class="btn" id="copyBash">Copy Bash</button>
+        </div>
+
+        <div id="psBlock" class="code-block">
+          <h4>PowerShell</h4>
+          <pre id="psOut"></pre>
+          <button type="button" class="btn" id="copyPs">Copy PowerShell</button>
+        </div>
+
+        <p id="extraNote" class="note" hidden></p>
+      </section>
+
+      <footer>
+        <a href="/">Home</a> · Source: <a href="/FULL_FLOW_GUIDE.md" target="_blank" rel="noopener noreferrer">FULL_FLOW_GUIDE.md</a> · <code>npm run web</code>
+      </footer>
+    </div>
+
+    <div id="toast" hidden>Copied</div>
+    <script src="app.js"></script>
+  </body>
+</html>

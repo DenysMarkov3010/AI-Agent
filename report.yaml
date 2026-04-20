@@ -1,0 +1,14 @@
+﻿{
+  "issueKey": "PROJ-123",
+  "issueSummary": "Example issue summary",
+  "issueDescription": "",
+  "issueLabels": [],
+  "isChangeRequest": false,
+  "checklist": null,
+  "approvalCsv": null,
+  "relatedDocumentation": {
+    "confluencePages": 0,
+    "relatedJiraIssues": 0
+  },
+  "generatedAt": "2026-01-01T00:00:00.000Z"
+}
