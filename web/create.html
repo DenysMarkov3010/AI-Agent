@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="AI Test Agent-api-origin" content="__AI Test Agent_API_ORIGIN__" />
-    <title>Create new test design — AI Test Agent</title>
+    <meta name="demoagent-api-origin" content="__DEMOAGENT_API_ORIGIN__" />
+    <title>Create new test design — DemoAgent</title>
     <link rel="icon" href="/favicon.png" type="image/png" sizes="any" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -33,7 +33,7 @@
           <div id="pathRow">
             <label for="projectPath">Project path</label>
             <div class="input-with-btn">
-              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\AI Test Agent" autocomplete="off" />
+              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\DemoAgent" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="pickProjectBtn" title="Native folder dialog (Windows / macOS / zenity)">
                 Browse folder…
               </button>
@@ -79,6 +79,22 @@
               <option value="testcases">Test cases</option>
             </select>
           </div>
+          <div id="testCasesLimitRow" hidden>
+            <label for="testCasesLimit">Test cases limit</label>
+            <select id="testCasesLimit">
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+              <option value="unlimited">Unlimited</option>
+            </select>
+          </div>
+          <div id="relatedJiraRow">
+            <label for="relatedJiraSearch">Found related Jira issues</label>
+            <select id="relatedJiraSearch">
+              <option value="yes" selected>Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
           <div id="day2Row" hidden>
             <label for="day2Scope">Day 2 scope</label>
             <select id="day2Scope">
@@ -91,7 +107,7 @@
         <div class="grid two" style="margin-top: 1rem">
           <div id="jiraRow">
             <label for="jiraKey">Jira Key</label>
-            <input type="text" id="jiraKey" value="FER-123" autocomplete="off" />
+            <input type="text" id="jiraKey" value="PROJ-123" autocomplete="off" />
           </div>
           <div id="keywordsRow">
             <label for="relatedKeywords">Related Keywords (optional)</label>

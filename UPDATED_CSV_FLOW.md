@@ -1,4 +1,4 @@
-﻿# Updated CSV Flow
+# Updated CSV Flow
 
 This is a **separate flow** from the default `agent-docs.js` flow.
 
@@ -12,7 +12,7 @@ Goal: take CSV files from `Updated test cases`, re-check them against Jira requi
 ### Bash
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 npm run csv:from-downloads -- "Patient app - Redesign_Add post, comment, reply.csv" --to "Updated test cases"
 ```
 
@@ -35,7 +35,7 @@ npm run csv:from-downloads -- "Patient app - Redesign_Add post, comment, reply.c
 ### Bash
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 JIRA_ISSUE_KEY=PROJ-12345 CHECK_APPROVAL=false UPDATED_FLOW_MODE=checklist node agent-update-csv.js
 ```
 
@@ -93,7 +93,7 @@ After the reviewer adds a comment, run:
 ### Bash
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 JIRA_ISSUE_KEY=PROJ-12345 CHECK_APPROVAL=true node agent-update-csv.js
 ```
 

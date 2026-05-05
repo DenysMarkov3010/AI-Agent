@@ -1,5 +1,5 @@
-﻿/**
- * Parse Pixel / Azure DevOps-style approved CSV and create Test Case work items in Azure DevOps.
+/**
+ * Parse Azure DevOps-style approved CSV and create Test Case work items in Azure DevOps.
  * Used after Jira approval CSV is generated (checklist or test cases format — same columns).
  */
 const fs = require("fs");
@@ -86,7 +86,7 @@ function pixelRowsToTestCases(rows) {
   if (!rows.length) return [];
   const header = rows[0].map((c) => (c || "").trim().toLowerCase());
   if (!header.includes("title") || !header.includes("test step")) {
-    throw new Error("CSV does not look like Pixel test format (expected Title, Test Step columns)");
+    throw new Error("CSV does not look like test format (expected Title, Test Step columns)");
   }
   const cases = [];
   /** @type {{ refId: string, title: string, priority: string, areaPath: string, steps: object[] } | null} */
@@ -129,359 +129,276 @@ function escapeXml(s) {
     .replace(/"/g, "&quot;");
 }
 
-/** Legacy: BDD was appended as one CSV step with this prefix — strip from TCM steps, BDD is rebuilt in Description. */
+/**
+ * Legacy: BDD was previously appended as a synthetic CSV step with this prefix
+ * (when ADO sync auto-built System.Description). That logic is removed — BDD is now
+ * generated separately from approved test cases / checklists via the LLM prompt
+ * documented in TEST_CASE_FORMAT.md → "Prompt: BDD / Gherkin for Azure DevOps Summary".
+ * This filter stays as a defensive cleanup so any old CSVs that still contain such
+ * synthetic rows do not produce junk Test Case steps in Azure DevOps.
+ */
 const LEGACY_BDD_CSV_STEP_PREFIX = "__BDD_HTML__";
 
 function partitionManualStepsForSync(steps) {
   return (steps || []).filter((s) => !String(s.action || "").startsWith(LEGACY_BDD_CSV_STEP_PREFIX));
 }
 
-function adoSyncBddDescriptionEnabled() {
-  const v = String(process.env.ADO_SYNC_BDD_DESCRIPTION ?? "true").toLowerCase().trim();
+// ---------------------------------------------------------------------------
+// BDD / Gherkin generation for ADO Test Case System.Description (Summary tab)
+// ---------------------------------------------------------------------------
+// Calls OpenRouter with the prompt documented in TEST_CASE_FORMAT.md →
+// "Prompt: BDD / Gherkin for Azure DevOps Summary". One LLM call PER imported
+// Test Case, producing one focused Scenario in that work item's Description.
+// Failure of BDD generation is non-fatal: the imported Test Case is preserved
+// and the user gets a console warning.
+
+function adoSyncBddFromPromptEnabled() {
+  const v = String(process.env.ADO_SYNC_BDD_FROM_PROMPT ?? "true").toLowerCase().trim();
   return v !== "false" && v !== "0" && v !== "no";
 }
 
-function bddDescriptionEscapeText(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/** One BDD line for System.Description: bold uppercase keyword + escaped body. */
-function bddDescriptionLine(keyword, body) {
-  const kw = String(keyword || "").toUpperCase().trim();
-  const b = String(body || "").trim();
-  const tail = b ? ` ${bddDescriptionEscapeText(b)}` : "";
-  return `<b>${bddDescriptionEscapeText(kw)}</b>${tail}`;
-}
+let cachedAdoBddPromptText = null;
 
 /**
- * First line uses primaryKeyword (GIVEN/WHEN/THEN); continuations use AND.
- * @param {string} primaryKeyword
- * @param {string[]} clauses
- * @param {{ maxClauses?: number, maxClauseLen?: number }} [opts]
+ * Read the BDD prompt body (the inner ```text block) from TEST_CASE_FORMAT.md.
+ * Result is cached for the lifetime of the process.
  */
-function bddDescriptionStepLines(primaryKeyword, clauses, opts = {}) {
-  const maxClauses = opts.maxClauses ?? 8;
-  const maxClauseLen = opts.maxClauseLen ?? 480;
-  const cleaned = (clauses || [])
-    .map((c) => bddWhitespace(c))
-    .filter((c) => c.length > 8)
-    .slice(0, maxClauses)
-    .map((c) => c.slice(0, maxClauseLen));
-  if (!cleaned.length) return [];
-  const lines = [bddDescriptionLine(primaryKeyword, cleaned[0])];
-  for (let i = 1; i < cleaned.length; i++) {
-    lines.push(bddDescriptionLine("AND", cleaned[i]));
+function loadAdoBddPromptText() {
+  if (cachedAdoBddPromptText !== null) return cachedAdoBddPromptText;
+  const file = path.join(__dirname, "TEST_CASE_FORMAT.md");
+  try {
+    if (!fs.existsSync(file)) {
+      cachedAdoBddPromptText = "";
+      return cachedAdoBddPromptText;
+    }
+    const md = fs.readFileSync(file, "utf8");
+    const sectionMarker = "## Prompt: BDD / Gherkin for Azure DevOps Summary";
+    const sectionStart = md.indexOf(sectionMarker);
+    if (sectionStart < 0) {
+      cachedAdoBddPromptText = "";
+      return cachedAdoBddPromptText;
+    }
+    const section = md.slice(sectionStart);
+    const fenceStart = section.indexOf("```text");
+    if (fenceStart < 0) {
+      cachedAdoBddPromptText = "";
+      return cachedAdoBddPromptText;
+    }
+    const after = section.slice(fenceStart + "```text".length);
+    const fenceEnd = after.indexOf("\n```");
+    if (fenceEnd < 0) {
+      cachedAdoBddPromptText = "";
+      return cachedAdoBddPromptText;
+    }
+    cachedAdoBddPromptText = after.slice(0, fenceEnd).trim();
+    return cachedAdoBddPromptText;
+  } catch (e) {
+    console.warn(`   ADO BDD: could not load prompt from TEST_CASE_FORMAT.md — ${e.message}`);
+    cachedAdoBddPromptText = "";
+    return cachedAdoBddPromptText;
   }
-  return lines;
 }
 
 /**
- * Split work item title into broader FEATURE vs specific SCENARIO when the title uses a common delimiter.
- * @param {string} title
- * @returns {{ feature: string, scenario: string }}
+ * Decide BDD mode for one ADO Test Case based on its CSV step rows:
+ * if no Step Expected has content → checklist-style (logical phrasing in prompt);
+ * else test_case-style (UI-anchored phrasing).
+ * @param {{ steps: Array<{ stepNumber: number, action: string, expected: string }> }} tc
  */
-function splitFeatureAndScenarioFromTitle(title) {
-  const t = (title || "").trim() || "Test case";
-  const delims = [" — ", " – ", " | ", ": "];
-  for (const d of delims) {
-    const i = t.indexOf(d);
-    if (i > 0 && i < t.length - d.length) {
-      const feature = t.slice(0, i).trim();
-      const scenario = t.slice(i + d.length).trim();
-      return { feature: feature || t, scenario: scenario || t };
+function detectBddModeForTestCase(tc) {
+  const steps = (tc?.steps || []).filter((s) => Number(s.stepNumber) >= 2);
+  if (!steps.length) return "test_case";
+  const withExpected = steps.filter((s) => String(s.expected || "").trim().length > 0).length;
+  return withExpected === 0 ? "checklist" : "test_case";
+}
+
+/**
+ * Render one parsed test case as the input artifact text expected by the BDD prompt.
+ * @param {{ title: string, priority?: string, areaPath?: string, steps: Array<{ stepNumber: number, action: string, expected: string }> }} tc
+ */
+function formatTestCaseAsBddArtifact(tc) {
+  const lines = [];
+  lines.push(`Title: ${String(tc.title || "").trim()}`);
+  if (tc.priority) lines.push(`Priority: ${tc.priority}`);
+  if (tc.areaPath) lines.push(`Area Path: ${tc.areaPath}`);
+  lines.push("");
+  lines.push("Steps:");
+  const sorted = [...(tc.steps || [])].sort(
+    (a, b) => (a.stepNumber || 0) - (b.stepNumber || 0)
+  );
+  for (const s of sorted) {
+    const action = String(s.action || "").trim();
+    const expected = String(s.expected || "").trim();
+    lines.push(`Step ${s.stepNumber}:`);
+    lines.push(`  Action: ${action || "(empty)"}`);
+    lines.push(`  Expected: ${expected || "(empty)"}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Compose the full LLM prompt: the prompt body + a single test case as artifact + meta.
+ * @param {object} args
+ * @param {string} args.promptBody
+ * @param {string} args.mode
+ * @param {object} args.tc
+ * @param {string} [args.jiraKey]
+ */
+function buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey }) {
+  const artifact = formatTestCaseAsBddArtifact(tc);
+  const metaLines = [];
+  if (jiraKey) metaLines.push(`jira_key: ${jiraKey}`);
+  if (tc.areaPath) metaLines.push(`area_path: ${tc.areaPath}`);
+  const meta = metaLines.length ? metaLines.join("\n") : "(none)";
+
+  return [
+    promptBody,
+    "",
+    "---",
+    "",
+    "INPUT (the artifact to convert):",
+    `mode: ${mode}`,
+    `meta:\n${meta}`,
+    "",
+    "artifact:",
+    artifact,
+    "",
+    "ADO-SUMMARY OVERRIDE (this invocation only):",
+    "- Do PHASE 1 and PHASE 2 silently, internally — DO NOT include them in the response.",
+    "- Output ONLY the PHASE 3 artifact: a single Gherkin Feature block.",
+    "- Your response MUST start with the literal token `Feature:` on the very first line.",
+    "- No markdown headings (no `#`, no `##`). No prose. No markdown fences. No JSON.",
+  ].join("\n");
+}
+
+const ADO_BDD_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+function bddDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Call OpenRouter once with the assembled prompt; one retry on retryable error.
+ * @param {string} prompt
+ * @returns {Promise<string>}
+ */
+async function callOpenRouterForBdd(prompt) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+  const models = (process.env.OPENROUTER_MODELS || "openai/gpt-oss-20b:free")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  const maxTokens = parseInt(process.env.ADO_SYNC_BDD_MAX_TOKENS || "2000", 10);
+  const fetchFn = globalThis.fetch || require("node-fetch");
+
+  let lastError = null;
+  for (let modelIndex = 0; modelIndex < models.length; modelIndex += 1) {
+    const model = models[modelIndex];
+    const isLastModel = modelIndex === models.length - 1;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        const res = await fetchFn("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0,
+            max_tokens: maxTokens,
+          }),
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          const message = `OpenRouter error: ${res.status} ${res.statusText}. ${errText}`;
+          lastError = new Error(message);
+          const retryable = ADO_BDD_RETRYABLE_STATUS.has(res.status);
+          if (retryable && attempt < 2) {
+            await bddDelay(1200 * attempt);
+            continue;
+          }
+          if (retryable && !isLastModel) {
+            console.warn(`   ADO BDD: model "${model}" rate-limited; trying next model`);
+            break;
+          }
+          throw lastError;
+        }
+        const data = await res.json();
+        if (!data.choices || !data.choices[0]) {
+          throw new Error("OpenRouter returned no choices");
+        }
+        return String(data.choices[0].message?.content || "").trim();
+      } catch (e) {
+        lastError = e;
+        if (attempt < 2) {
+          await bddDelay(1200 * attempt);
+          continue;
+        }
+        if (!isLastModel) {
+          console.warn(`   ADO BDD: model "${model}" failed; trying next model — ${e.message}`);
+          break;
+        }
+        throw lastError;
+      }
     }
   }
-  return { feature: t, scenario: t };
-}
-
-function bddWhitespace(s) {
-  return String(s || "")
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Prefer sentences that overlap scenario title tokens (feature behaviour). */
-function extractRelevantJiraSentences(description, scenarioTitle, maxLen) {
-  const sentences = String(description || "")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => bddWhitespace(s))
-    .filter((s) => s.length > 35);
-  const words = new Set(
-    String(scenarioTitle || "")
-      .toLowerCase()
-      .split(/\W+/)
-      .filter((w) => w.length > 3)
-  );
-  const scored = sentences
-    .map((s) => {
-      const sl = s.toLowerCase();
-      let score = 0;
-      for (const w of words) if (sl.includes(w)) score += 1;
-      return { s, score };
-    })
-    .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score);
-  const pick = scored[0]?.s || "";
-  return pick.slice(0, maxLen);
-}
-
-function extractOutcomeLikeSentences(description, maxLen) {
-  const sentences = String(description || "")
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => bddWhitespace(s))
-    .filter((s) => s.length > 25);
-  const re = /\b(must|shall|should|will be|is set|are set|is displayed|are displayed|equals|updated|transitioned|results in|ensures)\b/i;
-  const hits = sentences.filter((s) => re.test(s));
-  return hits.slice(0, 5).join(". ").slice(0, maxLen);
-}
-
-function bddNormalizeForDedupe(s) {
-  return bddWhitespace(String(s || ""))
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function bddDedupeClauses(clauses) {
-  const out = [];
-  const seen = new Set();
-  for (const c of clauses || []) {
-    const t = bddWhitespace(String(c || ""));
-    if (t.length < 10) continue;
-    const key = bddNormalizeForDedupe(t);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
-  }
-  return out;
-}
-
-function bddSubtractClauses(clauses, removeKeys) {
-  const out = [];
-  for (const c of clauses || []) {
-    const t = bddWhitespace(String(c || ""));
-    if (t.length < 10) continue;
-    const key = bddNormalizeForDedupe(t);
-    if (removeKeys && removeKeys.has(key)) continue;
-    out.push(t);
-  }
-  return out;
+  throw lastError || new Error("OpenRouter call failed");
 }
 
 /**
- * Pull stable "where/what scope" snippets from Jira HTML/text to avoid repeating the whole description
- * in every Scenario's GIVEN/THEN.
+ * Clean up the model output: drop any markdown fences and any preamble the LLM
+ * may have emitted (Phase 1 "Detected mode and inputs", Phase 2 "Scenario plan",
+ * etc.) so that the result starts at the first `Feature:` line. Also drops any
+ * trailing markdown sections that some models append after the Feature block.
  */
-function bddFlattenJiraDescriptionForExtract(description) {
-  return bddWhitespace(
-    String(description || "")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<\/p>\s*/gi, "\n")
-      .replace(/<\/li>\s*/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-  );
-}
-
-function bddExtractLocationsScopeContext(description, maxLen) {
-  const d = bddFlattenJiraDescriptionForExtract(description);
-  if (!d.trim()) return "";
-
-  const locIdx = d.search(/\bLocations:\s*/i);
-  const scopeIdx = d.search(/\bScope:\s*/i);
-  const acIdx = d.search(/\bAcceptance\s*criteria\b|\bAcceptance\s*:\b|\bac\s*[:\n]/i);
-
-  let loc = "";
-  if (locIdx >= 0) {
-    const after = d.slice(locIdx).replace(/^\s*Locations:\s*/i, "");
-    const end =
-      scopeIdx > locIdx ? scopeIdx - locIdx : acIdx > locIdx ? acIdx - locIdx : after.length;
-    loc = bddWhitespace(after.slice(0, end));
+function extractGherkinFromLlmResponse(text) {
+  let s = String(text || "").trim();
+  s = s.replace(/^```(?:gherkin|cucumber|text)?\s*\n/i, "").replace(/\n```\s*$/i, "");
+  const featureIdx = s.search(/^Feature:/m);
+  if (featureIdx > 0) {
+    s = s.slice(featureIdx);
   }
-
-  let scope = "";
-  if (scopeIdx >= 0) {
-    const after = d.slice(scopeIdx).replace(/^\s*Scope:\s*/i, "");
-    const relAc = acIdx > scopeIdx ? acIdx - scopeIdx : -1;
-    const end = relAc > 0 ? relAc : after.length;
-    scope = bddWhitespace(after.slice(0, end));
+  // Drop a trailing markdown section if one slipped through (e.g. "# Self-check ...").
+  const trailingHeading = s.search(/\n#{1,6}\s+\w/);
+  if (trailingHeading > 0) {
+    s = s.slice(0, trailingHeading);
   }
-
-  let out = "";
-  if (loc) out += `Locations: ${loc}`;
-  if (scope) out += `${out ? " " : ""}Scope: ${scope}`;
-  if (!out) return "";
-
-  out = bddWhitespace(out);
-  return out.slice(0, maxLen || 520);
-}
-
-function bddListAcceptanceBullets(description, maxItems) {
-  const d = bddFlattenJiraDescriptionForExtract(description);
-  if (!d.trim()) return [];
-  const lower = d.toLowerCase();
-  let start = lower.search(/\bacceptance\s*criteria\b|\bacceptance\s*:\b|\bac\s*[:\n]/i);
-  const chunk = start >= 0 ? d.slice(start) : d;
-  const bullets = [];
-  for (const raw of chunk.split(/\n/)) {
-    const t = raw
-      .replace(/^\s*[-*•]\s+/, "")
-      .replace(/^\s*\d+[.)]\s+/, "")
-      .trim();
-    if (t.length > 12 && !/^#{1,6}\s/.test(t)) bullets.push(t);
-    if (bullets.length >= (maxItems || 30)) break;
-  }
-  return bullets;
-}
-
-function bddScoreTextAgainstTitle(text, title) {
-  const t = bddWhitespace(String(text || "")).toLowerCase();
-  if (!t) return 0;
-  const words = String(title || "")
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 3);
-  let score = 0;
-  for (const w of words) {
-    if (t.includes(w)) score += 1;
-  }
-  return score;
-}
-
-function bddPickAcceptanceBulletsForScenario(bullets, scenarioTitle, maxPick) {
-  const pick = Math.max(1, Math.min(6, maxPick || 4));
-  const scored = (bullets || [])
-    .map((b) => ({ b, s: bddScoreTextAgainstTitle(b, scenarioTitle) }))
-    .sort((a, b) => b.s - a.s);
-  const out = [];
-  const seen = new Set();
-  for (const x of scored) {
-    if (x.s <= 0) break;
-    const key = bddNormalizeForDedupe(x.b);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(x.b);
-    if (out.length >= pick) break;
-  }
-  return out;
+  return s.trim();
 }
 
 /**
- * BDD "Summary" HTML for Azure DevOps System.Description:
- * built ONLY from parent Jira issue summary/description (requirements),
- * not from CSV checklist rows / manual steps.
+ * Wrap plain Gherkin text into ADO HTML (Description renders <pre>).
+ * Prepends one empty line (`<p><br/></p>`) so the BDD block does not stick to the
+ * top of the Summary tab > Description field.
  */
-function buildParentJiraRequirementsBddHtml(workItemTitle, jiraCtx) {
-  const { feature, scenario: titleScenario } = splitFeatureAndScenarioFromTitle(workItemTitle);
-  const featureName = (jiraCtx?.summary && bddWhitespace(jiraCtx.summary)) || feature;
-  const jiraDesc = jiraCtx?.description || "";
-  const maxClause = 520;
-
-  const locScope = bddExtractLocationsScopeContext(jiraDesc, maxClause);
-  const bullets = bddListAcceptanceBullets(jiraDesc, 40);
-
-  const sharedGivenKeys = new Set();
-  const sharedGivenClauses = bddDedupeClauses([
-    ...(locScope ? [locScope] : []),
-    ...bullets.slice(0, 3).map((b) => b.slice(0, maxClause)),
-  ]);
-  for (const c of sharedGivenClauses) sharedGivenKeys.add(bddNormalizeForDedupe(c));
-
-  const preamble = [
-    bddDescriptionLine("FEATURE", featureName),
-    ...bddDescriptionStepLines("GIVEN", sharedGivenClauses.length ? sharedGivenClauses : [
-      "Parent Jira issue does not contain extractable Locations/Scope/Acceptance text; rely on the parent issue description directly in Jira.",
-    ], { maxClauses: 10, maxClauseLen: maxClause }),
-  ].join("<br/>");
-
-  const scenarioName = bddWhitespace(titleScenario || workItemTitle).slice(0, 220) || "Scenario";
-
-  const whenLines = bddDescriptionStepLines(
-    "WHEN",
-    [`The scenario under test is: ${scenarioName}`],
-    { maxClauses: 3, maxClauseLen: maxClause }
-  );
-
-  let thenClauses = bddPickAcceptanceBulletsForScenario(bullets, scenarioName, 5).map((b) =>
-    bddWhitespace(`Requirement: ${b}`).slice(0, maxClause)
-  );
-  thenClauses = bddSubtractClauses(thenClauses, sharedGivenKeys);
-
-  if (!thenClauses.length) {
-    const rel = extractRelevantJiraSentences(jiraDesc, scenarioName, maxClause);
-    if (rel) thenClauses.push(rel);
-  }
-  if (!thenClauses.length) {
-    const out = extractOutcomeLikeSentences(jiraDesc, maxClause);
-    if (out) thenClauses.push(out);
-  }
-  if (!thenClauses.length) {
-    thenClauses.push("The parent issue acceptance criteria are satisfied for this scenario (see parent Jira issue for authoritative wording).");
-  }
-
-  const thenLines = bddDescriptionStepLines("THEN", bddDedupeClauses(thenClauses), { maxClauses: 10, maxClauseLen: maxClause });
-
-  const block = [
-    bddDescriptionLine("SCENARIO", scenarioName),
-    ...whenLines,
-    ...thenLines,
-  ].join("<br/>");
-
-  return [preamble, block].join("<br/><br/>");
-}
-
-function adoSyncBddJiraContextEnabled() {
-  const v = String(process.env.ADO_SYNC_BDD_JIRA_CONTEXT ?? "true").toLowerCase().trim();
-  return v !== "false" && v !== "0" && v !== "no";
+function wrapGherkinAsAdoDescription(gherkin) {
+  const escaped = String(gherkin || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return `<div><p><br/></p><pre>${escaped}</pre></div>`;
 }
 
 /**
- * Load parent Jira issue for BDD (System.Description) during ADO sync.
- * @param {string} issueKey
- * @returns {Promise<{ key: string, summary: string, description: string, loadedFromParent: boolean } | null>}
+ * End-to-end BDD generation for one parsed Test Case. Returns the HTML to put
+ * into /fields/System.Description, or null on failure (caller should warn).
+ * @param {object} args
+ * @param {object} args.tc
+ * @param {string} [args.jiraKey]
+ * @param {string} args.promptBody
  */
-async function fetchParentIssueContextForBdd(issueKey) {
-  const key = normalizeJiraIssueKey(issueKey);
-  if (!key) return null;
-  const base = process.env.JIRA_BASE_URL || process.env.BASE_URL;
-  const email = process.env.JIRA_EMAIL || process.env.LOGIN_EMAIL;
-  const token = process.env.JIRA_API_TOKEN;
-  if (!base || !email || !token) {
-    console.warn("   ADO BDD: JIRA_* env not set — skipping parent issue fetch (System.Description BDD will be skipped)");
-    return null;
+async function generateBddDescriptionHtmlForTestCase({ tc, jiraKey, promptBody }) {
+  const mode = detectBddModeForTestCase(tc);
+  const prompt = buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey });
+  const raw = await callOpenRouterForBdd(prompt);
+  const gherkin = extractGherkinFromLlmResponse(raw);
+  if (!gherkin || !/^Feature:/m.test(gherkin)) {
+    throw new Error("LLM response did not contain a Feature block");
   }
-  const { JiraClient } = require("./jira-client");
-  const jc = new JiraClient(base, email, token);
-  const child = await jc.getIssueWithExpand(key);
-  const parentKey = child.fields?.parent?.key;
-  if (!parentKey) {
-    console.warn(`   ADO BDD: issue ${key} has no parent — skipping parent-requirements BDD context`);
-    return null;
-  }
-  let loadedFromParent = false;
-  let source = null;
-  try {
-    source = await jc.getIssueWithExpand(parentKey);
-    loadedFromParent = true;
-  } catch (e) {
-    console.warn(`   ADO BDD: could not load parent ${parentKey}: ${e.message}`);
-    return null;
-  }
-  const data = jc.extractIssueData(source);
-  console.log(
-    `   ADO BDD: Jira context from ${loadedFromParent ? "parent" : "issue"} ${data.key} (${(data.description || "").length} chars description)`
-  );
-  return {
-    key: data.key,
-    summary: String(data.summary || "").trim(),
-    description: String(data.description || "").trim(),
-    loadedFromParent,
-  };
+  return wrapGherkinAsAdoDescription(gherkin);
 }
 
 /**
@@ -803,25 +720,25 @@ async function syncApprovedPixelCsvToAzureDevOps(csvFilePath, opts = {}) {
   const created = [];
   const errors = [];
 
-  let jiraBddCtx = null;
-  if (adoSyncBddDescriptionEnabled() && adoSyncBddJiraContextEnabled()) {
-    const seedKey =
-      normalizeJiraIssueKey(jiraKey) ||
-      normalizeJiraIssueKey(testCases.map((tc) => tc.refId).find((id) => id && String(id).trim()) || "") ||
-      extractJiraKeyFromCsvFilename(csvFilePath);
-    if (seedKey) {
-      try {
-        jiraBddCtx = await fetchParentIssueContextForBdd(seedKey);
-      } catch (e) {
-        console.warn(`   ADO BDD: Jira parent fetch failed: ${e.message}`);
-      }
+  const bddEnabled = adoSyncBddFromPromptEnabled();
+  let bddPromptBody = "";
+  if (bddEnabled) {
+    bddPromptBody = loadAdoBddPromptText();
+    if (!bddPromptBody) {
+      console.warn(
+        "   ADO BDD: prompt body not found in TEST_CASE_FORMAT.md — System.Description will be left empty"
+      );
+    } else if (!process.env.OPENROUTER_API_KEY) {
+      console.warn(
+        "   ADO BDD: OPENROUTER_API_KEY is not set — System.Description will be left empty"
+      );
+      bddPromptBody = "";
     } else {
-      console.warn("   ADO BDD: no Jira key (filename, env, or CSV ID column) — parent context skipped");
+      console.log(
+        `   ADO BDD: per-Test-Case Gherkin generation is ON for ${testCases.length} case(s) (set ADO_SYNC_BDD_FROM_PROMPT=false to disable)`
+      );
     }
   }
-
-  const bddDescEnabled = adoSyncBddDescriptionEnabled();
-  let bddParentMissingWarned = false;
 
   for (const tc of testCases) {
     const manualSteps = partitionManualStepsForSync(tc.steps);
@@ -836,21 +753,6 @@ async function syncApprovedPixelCsvToAzureDevOps(csvFilePath, opts = {}) {
       { op: "add", path: "/fields/System.Title", value: tc.title },
       { op: "add", path: "/fields/Microsoft.VSTS.TCM.Steps", value: stepsXml },
     ];
-    if (bddDescEnabled) {
-      if (jiraBddCtx && jiraBddCtx.loadedFromParent) {
-        const bddHtml = buildParentJiraRequirementsBddHtml(tc.title, jiraBddCtx);
-        patch.push({
-          op: "add",
-          path: "/fields/System.Description",
-          value: `<div>${bddHtml}</div>`,
-        });
-      } else if (!bddParentMissingWarned) {
-        bddParentMissingWarned = true;
-        console.warn(
-          "   ADO BDD: skipping System.Description for all imported test cases — parent Jira issue (requirements) could not be loaded"
-        );
-      }
-    }
     const pri = parseInt(tc.priority, 10);
     if (Number.isFinite(pri)) {
       patch.push({ op: "add", path: "/fields/Microsoft.VSTS.Common.Priority", value: pri });
@@ -872,6 +774,24 @@ async function syncApprovedPixelCsvToAzureDevOps(csvFilePath, opts = {}) {
             await client.addTestCasesToSuite(planId, suiteId, [id]);
           } catch (e) {
             errors.push(`Work item ${id} created but not linked to suite: ${e.message}`);
+          }
+        }
+        if (bddEnabled && bddPromptBody) {
+          try {
+            const tcForBdd = { ...tc, steps: manualSteps };
+            const descHtml = await generateBddDescriptionHtmlForTestCase({
+              tc: tcForBdd,
+              jiraKey,
+              promptBody: bddPromptBody,
+            });
+            await client.updateWorkItem(id, [
+              { op: "add", path: "/fields/System.Description", value: descHtml },
+            ]);
+            console.log(`   ADO BDD: Description set for work item ${id} — ${tc.title}`);
+          } catch (e) {
+            console.warn(
+              `   ADO BDD: skipped Description for work item ${id} (${tc.title}) — ${e.message}`
+            );
           }
         }
       }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Command builder + Run (Day 1 / Day 2) — FULL_FLOW_GUIDE.md
  */
 
@@ -8,9 +8,9 @@ const PATH_PLACEHOLDER = "PATH_TO_DEMO_AGENT";
 
 /** API lives on the same machine as web-ui-server.js; Cursor / webview may use a different page origin than the API. */
 function apiOrigin() {
-  const m = document.querySelector('meta[name="AI Test Agent-api-origin"]');
+  const m = document.querySelector('meta[name="demoagent-api-origin"]');
   const raw = (m && m.getAttribute("content")) || "";
-  if (raw && !raw.includes("__AI Test Agent_API_ORIGIN__")) {
+  if (raw && !raw.includes("__DEMOAGENT_API_ORIGIN__")) {
     return raw.replace(/\/$/, "");
   }
   if (location.protocol === "http:" || location.protocol === "https:") {
@@ -27,6 +27,7 @@ function apiUrl(path) {
 
 function vals() {
   const rawJira = ($("jiraKey").value || "").trim();
+  const limitEl = $("testCasesLimit");
   return {
     projectPath: ($("projectPath").value || "").trim() || PATH_PLACEHOLDER,
     jiraKey: rawJira || "PROJ-123",
@@ -34,6 +35,8 @@ function vals() {
     day1Scope: $("day1Scope").value,
     generateMode: $("generateMode").value,
     day2Scope: $("day2Scope").value,
+    relatedJiraSearch: $("relatedJiraSearch").value,
+    testCasesLimit: (limitEl && limitEl.value) || "10",
   };
 }
 
@@ -54,7 +57,7 @@ function bashSq(s) {
 }
 
 function cdBash(v) {
-  return v.projectPath === PATH_PLACEHOLDER ? "cd /path/to/AI Test Agent" : `cd ${bashSq(v.projectPath)}`;
+  return v.projectPath === PATH_PLACEHOLDER ? "cd /path/to/DemoAgent" : `cd ${bashSq(v.projectPath)}`;
 }
 
 function cdPs(v) {
@@ -76,22 +79,34 @@ function buildDay1(v) {
     };
   }
 
+  const disableRelated = v.relatedJiraSearch === "no";
+  // Only include TEST_CASES_LIMIT in the printed command when it differs from the default ("10")
+  // and only for testcases mode (the env var is ignored otherwise).
+  const customLimit =
+    v.generateMode === "testcases" && v.testCasesLimit && v.testCasesLimit !== "10"
+      ? v.testCasesLimit
+      : null;
+
   const envBash = [
     `JIRA_ISSUE_KEY=${bashSq(v.jiraKey)}`,
     "CHECK_APPROVAL=false",
     v.generateMode === "testcases" ? "GENERATE_MODE=testcases" : null,
+    customLimit ? `TEST_CASES_LIMIT=${bashSq(customLimit)}` : null,
     v.relatedKeywords ? `RELATED_ISSUES_KEYWORDS=${bashSq(v.relatedKeywords)}` : null,
+    disableRelated ? "ENABLE_RELATED_ISSUES_SEARCH=false" : null,
   ]
     .filter(Boolean)
     .join(" ");
 
   const kwPs = v.relatedKeywords ? `\n$env:RELATED_ISSUES_KEYWORDS="${escPs(v.relatedKeywords)}"` : "";
   const genPs = v.generateMode === "testcases" ? `\n$env:GENERATE_MODE="testcases"` : "";
+  const limitPs = customLimit ? `\n$env:TEST_CASES_LIMIT="${escPs(customLimit)}"` : "";
+  const relatedPs = disableRelated ? `\n$env:ENABLE_RELATED_ISSUES_SEARCH="false"` : "";
 
   return {
     title: "Step 1 — 2A Single issue",
     bash: `${cdBash(v)}\n${envBash} node agent-docs.js`,
-    ps: `${cdPs(v)}\n$env:JIRA_ISSUE_KEY="${escPs(v.jiraKey)}"\n$env:CHECK_APPROVAL="false"${genPs}${kwPs}\nnode agent-docs.js`,
+    ps: `${cdPs(v)}\n$env:JIRA_ISSUE_KEY="${escPs(v.jiraKey)}"\n$env:CHECK_APPROVAL="false"${genPs}${limitPs}${kwPs}${relatedPs}\nnode agent-docs.js`,
   };
 }
 
@@ -153,6 +168,7 @@ function render() {
 
   $("day1Row").hidden = section !== "2";
   $("day2Row").hidden = section !== "4";
+  $("relatedJiraRow").hidden = section !== "2";
   $("pathRow").hidden = false;
   const showJira =
     (section === "2" && $("day1Scope").value !== "2b") ||
@@ -160,6 +176,14 @@ function render() {
   $("jiraRow").hidden = !showJira;
   $("keywordsRow").hidden = section !== "2" || $("day1Scope").value !== "2a";
   $("genModeRow").hidden = section !== "2" || $("day1Scope").value === "2b";
+
+  // Test cases limit only applies to "Create new test design" -> single Jira ticket -> Test cases mode.
+  // For batch (2b) limit must be set in .env (TEST_CASES_LIMIT) since the wizard does not expose mode there.
+  const limitRow = $("testCasesLimitRow");
+  if (limitRow) {
+    limitRow.hidden =
+      section !== "2" || $("day1Scope").value === "2b" || $("generateMode").value !== "testcases";
+  }
 
   const adoExportRow = $("adoExportTagRow");
   if (adoExportRow) {
@@ -253,7 +277,7 @@ async function exportAdoTagCsv() {
   const pathOk = v.projectPath !== PATH_PLACEHOLDER && v.projectPath.length > 2;
   if (!pathOk) {
     if (errEl) {
-      errEl.textContent = "Set a valid AI Test Agent project path first";
+      errEl.textContent = "Set a valid DemoAgent project path first";
       errEl.hidden = false;
     }
     return;
@@ -296,7 +320,7 @@ async function exportAdoTagCsv() {
           const fromLog = compactToolOutputForUi(stderrLog);
           errEl.textContent =
             fromLog ||
-            "Export failed. Check .env in the AI Test Agent folder (ADO_ORG, ADO_PROJECT, ADO_PAT, optional ADO_SERVER_URL) and PAT permissions.";
+            "Export failed. Check .env in the DemoAgent folder (ADO_ORG, ADO_PROJECT, ADO_PAT, optional ADO_SERVER_URL) and PAT permissions.";
           errEl.hidden = false;
         }
       }
@@ -529,6 +553,10 @@ async function runStep() {
   appendRunChunk(logPre, "stdout", "Connecting to local API…\n");
 
   const url = isDay1 ? "/__da/run-day1" : "/__da/run-day2";
+  // testCasesLimit is forwarded only for Create-new-test-design + single ticket + testcases mode.
+  // Server ignores it for other combinations to keep prior behaviour intact.
+  const limitForApi =
+    v.day1Scope === "2a" && v.generateMode === "testcases" ? v.testCasesLimit : "";
   const body = isDay1
     ? {
         projectPath: v.projectPath,
@@ -536,6 +564,8 @@ async function runStep() {
         relatedKeywords: v.relatedKeywords,
         generateMode: v.generateMode,
         day1Scope: v.day1Scope,
+        relatedJiraSearch: v.relatedJiraSearch,
+        testCasesLimit: limitForApi,
         stream: true,
       }
     : {
@@ -598,7 +628,9 @@ function wire() {
     "mainSection",
     "day1Scope",
     "generateMode",
+    "testCasesLimit",
     "day2Scope",
+    "relatedJiraSearch",
     "projectPath",
     "jiraKey",
     "relatedKeywords",

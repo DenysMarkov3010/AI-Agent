@@ -1,4 +1,4 @@
-﻿/** Instructs the model to infer domain/area context before writing outputs (checklist). */
+/** Instructs the model to infer domain/area context before writing outputs (checklist). */
 const CHECKLIST_DEEP_AREA_BLOCK = `
 DEEP AREA UNDERSTANDING (do this mentally BEFORE you write any checklist items):
 1. Synthesize the broader feature/domain: primary user roles, product vocabulary, key entities, typical workflows, and where this ticket sits in the end-to-end journey (not only the single story text).
@@ -156,7 +156,7 @@ IMPORTANT:
 
 /**
  * Build prompt for generating full test cases (Azure DevOps format) with steps.
- * Used when GENERATE_MODE=testcases. Must follow REFERENCE.md (Test case format section).
+ * Used when GENERATE_MODE=testcases. Must follow TEST_CASE_FORMAT.md.
  */
 function generateTestCasesPrompt(context) {
   const {
@@ -167,7 +167,25 @@ function generateTestCasesPrompt(context) {
     relatedJiraIssues = [],
     projectTestCases = [],
     testCaseFormatRef = "",
+    testCasesLimit = 10,
   } = context;
+
+  // null / 0 / negative / non-finite -> "unlimited"; otherwise an explicit cap.
+  const limitNum =
+    testCasesLimit === null ||
+    testCasesLimit === undefined ||
+    !Number.isFinite(Number(testCasesLimit)) ||
+    Number(testCasesLimit) <= 0
+      ? null
+      : Math.floor(Number(testCasesLimit));
+  const isUnlimited = limitNum === null;
+  const limitHeaderClause = isUnlimited ? "" : ` (maximum ${limitNum} test cases total)`;
+  const limitRequirementBullet = isUnlimited
+    ? "- Generate as many test cases as the story actually requires—no fixed cap. Prefer fewer, deeper cases over many shallow ones: pack functional, negative, validation, boundary, permission/role, and error handling into well-scoped scenarios with rich step-by-step detail. Favor functional and end-to-end story coverage; do not dedicate test cases solely to generic \"regression\"—if adjacent behavior matters, cover it inside a functional scenario with explicit steps."
+    : `- Generate at most ${limitNum} test cases (hard cap: never more than ${limitNum}). Prefer fewer, deeper cases over many shallow ones: pack functional, negative, validation, boundary, permission/role, and error handling into well-scoped scenarios with rich step-by-step detail. Favor functional and end-to-end story coverage; do not dedicate test cases solely to generic "regression"—if adjacent behavior matters, cover it inside a functional scenario with explicit steps.`;
+  const limitImportantBullet = isUnlimited
+    ? "- The testCases array length is up to you—size it to the story; do not pad with redundant cases."
+    : `- The testCases array MUST contain no more than ${limitNum} items.`;
 
   const confluenceJson = JSON.stringify(confluencePages, null, 2);
   const jiraIssuesJson = JSON.stringify(relatedJiraIssues, null, 2);
@@ -207,7 +225,7 @@ ${testCaseFormatRef}
 You MUST output test cases that match this format: CSV columns ID, Work Item Type, Title, Test Step, Step Action, Step Expected, Priority, Area Path. First step of each test case is usually Preconditions with expected "—". Use clear Step Action and Step Expected like in the examples.`
     : "";
 
-  return `You are a senior QA engineer. Generate thorough, high-detail test cases in Azure DevOps format (maximum 10 test cases total). Prioritize depth of each case over count: do not omit important scenarios—express them in granular steps. Each test case has a Title, Priority (1 or 2), Area Path (e.g. YourProject), and ordered Steps. Each step has Test Step (number), Step Action, Step Expected. Preconditions are step 1 with expected "—".
+  return `You are a senior QA engineer. Generate thorough, high-detail test cases in Azure DevOps format${limitHeaderClause}. Prioritize depth of each case over count: do not omit important scenarios—express them in granular steps. Each test case has a Title, Priority (1 or 2), Area Path (e.g. YourProject), and ordered Steps. Each step has Test Step (number), Step Action, Step Expected. Preconditions are step 1 with expected "—".
 ${formatSection}
 
 Issue Key: ${issueKey}
@@ -216,7 +234,7 @@ Labels: ${issueLabels.join(", ") || "none"}
 ${contextSection}
 
 REQUIREMENTS:
-- Generate at most 10 test cases (hard cap: never more than 10). Prefer fewer, deeper cases over many shallow ones: pack functional, negative, validation, boundary, permission/role, and error handling into well-scoped scenarios with rich step-by-step detail. Favor functional and end-to-end story coverage; do not dedicate test cases solely to generic "regression"—if adjacent behavior matters, cover it inside a functional scenario with explicit steps.
+${limitRequirementBullet}
 - Be exhaustive with the issue description and any related context: every explicit rule, field, button, state, acceptance criterion, URL, role, or error message mentioned must appear in at least one concrete step (or explain in reasoning why it is out of scope).
 - Steps must be detailed and executable: spell out where to navigate, what to enter, what to observe. Avoid vague actions like "verify it works" or "check the feature". Expected results must name observable UI text, control states (enabled/disabled/visible), counts, messages, or outcomes where inferable from context.
 - Expected formatting rule: if a single step has more than one expected sentence/outcome, write each sentence as a separate bullet line starting with "- ".
@@ -246,7 +264,7 @@ REQUIREMENTS:
 IMPORTANT:
 - Generate ALL content in English. No markdown in action/expected.
 - Return ONLY valid JSON. No code fences or extra text.
-- The testCases array MUST contain no more than 10 items.
+${limitImportantBullet}
 - Every test case must have at least one step. Match the style and structure of the reference format.`;
 }
 

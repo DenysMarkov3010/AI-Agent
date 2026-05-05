@@ -374,6 +374,31 @@ class AdoClient {
   }
 
   /**
+   * Update fields of an existing work item (e.g. patch System.Description after creation).
+   * @param {number} id
+   * @param {Array<{ op: string, path: string, value?: unknown }>} patchDocument
+   */
+  async updateWorkItem(id, patchDocument) {
+    const params = new URLSearchParams();
+    params.set("api-version", this.witApiVersion);
+    const url = `${this.apisBase}/wit/workitems/${encodeURIComponent(id)}?${params.toString()}`;
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Basic ${this.auth}`,
+        Accept: "application/json",
+        "Content-Type": "application/json-patch+json",
+      },
+      body: JSON.stringify(patchDocument),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Azure DevOps update work item error: ${response.status} ${response.statusText}. ${errorText}`);
+    }
+    return response.json();
+  }
+
+  /**
    * Add existing Test Case work items to a suite in a Test Plan.
    * @param {number} planId
    * @param {number} suiteId

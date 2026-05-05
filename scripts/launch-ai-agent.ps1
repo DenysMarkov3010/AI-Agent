@@ -1,5 +1,5 @@
-# AI Test Agent — start QA Agent web UI (if needed) and open the app in the browser.
-# Run from the desktop shortcut or: powershell -ExecutionPolicy Bypass -File .\scripts\launch-pixel-ai-agent.ps1
+# AI Test Agent — start DemoAgent web UI (if needed) and open the app in the browser.
+# Run from the desktop shortcut or: powershell -ExecutionPolicy Bypass -File .\scripts\launch-ai-agent.ps1
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -17,7 +17,7 @@ function Test-WebUiUp {
 Add-Type -AssemblyName System.Windows.Forms
 
 if (-not (Test-Path (Join-Path $ProjectRoot "web-ui-server.js"))) {
-    [System.Windows.Forms.MessageBox]::Show("web-ui-server.js not found in:`n$ProjectRoot", "AI Test Agent") | Out-Null
+    [System.Windows.Forms.MessageBox]::Show("Не знайдено web-ui-server.js у:`n$ProjectRoot", "AI Test Agent") | Out-Null
     exit 1
 }
 

@@ -1,4 +1,4 @@
-﻿# Create "AI Test Agent.lnk" on Desktop with custom icon (ai-agent.ico).
+# Create "AI Test Agent.lnk" on Desktop with custom icon (ai-agent.ico).
 # Run: powershell -ExecutionPolicy Bypass -File .\scripts\create-desktop-shortcut.ps1
 
 $ErrorActionPreference = "Stop"
@@ -56,7 +56,7 @@ $Shortcut.TargetPath = "powershell.exe"
 $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherFull`""
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.IconLocation = "$icoFull,0"
-$Shortcut.Description = "AI Test Agent: QA Agent web UI and browser"
+$Shortcut.Description = "AI Test Agent: DemoAgent web UI and browser"
 $Shortcut.Save()
 
 Write-Host "Created: $lnkPath"

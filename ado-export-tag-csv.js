@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Export Azure DevOps Test Cases that match a tag (WIQL) to a single Pixel-style CSV
+ * Export Azure DevOps Test Cases that match a tag (WIQL) to a single  CSV
  * under ./Test cases/. Each run removes the previous export file at that path and writes a fresh file.
  *
  * Usage:
@@ -86,7 +86,7 @@ function decodeXmlText(s) {
 
 /**
  * Azure DevOps often stores step text as HTML inside parameterizedString (<DIV>, <P>, <BR/>).
- * Strip tags for Pixel-style plain-text CSV (see REFERENCE.md).
+ * Strip tags for  plain-text CSV (see TEST_CASE_FORMAT.md).
  */
 function htmlToPlainText(html) {
   let t = decodeXmlText(html);
@@ -342,7 +342,7 @@ Behavior:
   - Queries all Test Case work items in the project whose Tags field contains the given text.
   - Loads titles, steps (Microsoft.VSTS.TCM.Steps), priority, area, assignee, state.
   - Step text in ADO is often stored as HTML; it is always converted to plain text (no HTML tags in the CSV).
-  - Writes Pixel / Azure DevOps CSV columns (see REFERENCE.md).
+  - Writes Azure DevOps CSV columns (see TEST_CASE_FORMAT.md).
   - Before writing, removes other .csv files in the same folder as the output (then writes the new file), so only this export remains there.
 
 Examples:

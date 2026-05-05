@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 require("dotenv").config();
 
@@ -27,6 +27,20 @@ const TEST_CASES_FOLDER = process.env.TEST_CASES_FOLDER || path.join(__dirname, 
 const ENABLE_TEST_CASES_ANALYSIS =
   process.env.ENABLE_TEST_CASES_ANALYSIS === "true" && process.env.AGENT_BATCH_RUN !== "true";
 const GENERATE_MODE = (process.env.GENERATE_MODE || "checklist").toLowerCase().replace(/\s+/g, "");
+
+/**
+ * Resolve max number of test cases for GENERATE_MODE=testcases (Create new test design flow).
+ * Accepts integer (e.g. "10", "20", "30") or "unlimited" / "0" / "none" / empty -> null = no cap.
+ * Default when unset: 10 (matches the historical hard-cap).
+ */
+function resolveTestCasesLimit() {
+  const raw = String(process.env.TEST_CASES_LIMIT || "").trim().toLowerCase();
+  if (raw === "") return 10;
+  if (raw === "unlimited" || raw === "none" || raw === "0") return null;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return 10;
+  return n;
+}
 
 // Validate required environment variables
 if (!JIRA_BASE_URL) {
@@ -393,12 +407,12 @@ async function searchRelatedDocumentation(jiraClient, confluenceClient, issueDat
 
   if (enableRelatedIssuesSearch && queryWords.length > 0) {
     try {
-      // JQL: summary contains any provided keywords (or title-derived words), only Story / Improvement / Pixel Improvement.
+      // JQL: summary contains any provided keywords (or title-derived words), only Story / Improvement Improvement.
       const summaryConditions = queryWords
         .map(w => w.replace(/\\/g, "\\\\").replace(/"/g, '\\"'))
         .map(w => `summary ~ "${w}"`)
         .join(" OR ");
-      const jql = `project = ${PROJECT_KEY} AND issuetype in ("Story", "Improvement", "Pixel Improvement") AND (${summaryConditions}) AND key != ${issueData.key} ORDER BY updated DESC`;
+      const jql = `project = ${PROJECT_KEY} AND issuetype in ("Story", "Improvement", "Improvement") AND (${summaryConditions}) AND key != ${issueData.key} ORDER BY updated DESC`;
       console.log(`🔍 Searching related Jira issues with JQL (${searchMode}): ${jql}`);
       const jiraResults = await jiraClient.searchIssues(jql, [
         "key", "summary", "status", "labels", "description", "issuetype"
@@ -469,35 +483,37 @@ async function generateTestChecklist(issueData, relatedDocs) {
 /**
  * BDD/Gherkin prompt block in TEST_CASE_FORMAT.md is for Azure DevOps CSV import / Description only —
  * do not inject it into GENERATE_MODE=testcases LLM context.
+ *
+ * Strips ANY top-level section whose heading starts with "## Prompt: BDD / Gherkin"
+ * (covers current "## Prompt: BDD / Gherkin for Azure DevOps Summary ..." heading
+ * and any historical / future variations).
  */
 function stripBddPromptSectionFromTestCaseFormat(md) {
-  const marker = "\n## Prompt: BDD / Gherkin generation (Senior QA Automation)";
-  const start = md.indexOf(marker);
-  if (start === -1) return md;
-  const howIdx = md.indexOf("\n## How your QA MCP agent works (documentation-based)", start);
-  if (howIdx === -1) return md.slice(0, start).trim();
-  const head = md.slice(0, start).replace(/\n---\s*$/, "").trimEnd();
-  return `${head}\n\n${md.slice(howIdx + 1).trimStart()}`.trim();
+  const re = /\n## Prompt: BDD \/ Gherkin[^\n]*\n/g;
+  let result = String(md || "");
+  let match;
+  while ((match = re.exec(result)) !== null) {
+    const start = match.index;
+    const after = result.indexOf("\n## ", start + match[0].length);
+    const head = result.slice(0, start).replace(/\n---\s*$/, "").trimEnd();
+    if (after === -1) {
+      result = head;
+    } else {
+      result = `${head}\n\n${result.slice(after + 1).trimStart()}`;
+    }
+    re.lastIndex = 0;
+  }
+  return result.trim();
 }
 
 function loadTestCaseFormatRef() {
-  const legacyPath = path.join(__dirname, "TEST_CASE_FORMAT.md");
-  const refPath = path.join(__dirname, "REFERENCE.md");
+  const filePath = path.join(__dirname, "TEST_CASE_FORMAT.md");
   try {
-    if (fs.existsSync(legacyPath)) {
-      return stripBddPromptSectionFromTestCaseFormat(fs.readFileSync(legacyPath, "utf8").trim());
-    }
-    if (fs.existsSync(refPath)) {
-      const full = fs.readFileSync(refPath, "utf8");
-      const start = full.indexOf("## Test case format");
-      if (start === -1) return "";
-      const slice = full.slice(start);
-      const nextSection = slice.search(/\n## How your QA MCP agent\b/);
-      if (nextSection === -1) return slice.trim();
-      return slice.slice(0, nextSection).trim();
+    if (fs.existsSync(filePath)) {
+      return stripBddPromptSectionFromTestCaseFormat(fs.readFileSync(filePath, "utf8").trim());
     }
   } catch (e) {
-    console.warn("⚠️  Could not load test case format reference:", e.message);
+    console.warn("⚠️  Could not load TEST_CASE_FORMAT.md:", e.message);
   }
   return "";
 }
@@ -549,8 +565,13 @@ async function generateTestCases(issueData, relatedDocs) {
 
   const testCaseFormatRef = loadTestCaseFormatRef();
   if (testCaseFormatRef) {
-    console.log("📋 Using REFERENCE.md (Test case format section) as mandatory format reference");
+    console.log("📋 Using TEST_CASE_FORMAT.md as mandatory format reference");
   }
+
+  const testCasesLimit = resolveTestCasesLimit();
+  console.log(
+    `🔢 Test cases limit: ${testCasesLimit === null ? "unlimited" : testCasesLimit} (TEST_CASES_LIMIT env)`
+  );
 
   const prompt = generateTestCasesPrompt({
     issueKey: issueData.key,
@@ -560,6 +581,7 @@ async function generateTestCases(issueData, relatedDocs) {
     relatedJiraIssues: relatedDocs.relatedJiraIssues || [],
     projectTestCases,
     testCaseFormatRef,
+    testCasesLimit,
   });
 
   const response = await callLLM(prompt, parseInt(process.env.TEST_CASES_MAX_TOKENS || "12000", 10));
@@ -571,6 +593,12 @@ async function generateTestCases(issueData, relatedDocs) {
       throw new Error("LLM response missing testCases array");
     }
     parsed.testCases = normalizeExpectedInTestCases(parsed.testCases);
+    if (testCasesLimit !== null && parsed.testCases.length > testCasesLimit) {
+      console.log(
+        `⚠️  LLM returned ${parsed.testCases.length} test cases; trimming to TEST_CASES_LIMIT=${testCasesLimit}.`
+      );
+      parsed.testCases = parsed.testCases.slice(0, testCasesLimit);
+    }
     return parsed;
   } catch (error) {
     console.error("Failed to parse LLM test cases response:", error.message);
@@ -870,7 +898,7 @@ function generateApprovedChecklistCSV(issueData, approvedItems, outputPath) {
 }
 
 /**
- * Generate CSV with approved test cases (Azure DevOps / Pixel format).
+ * Generate CSV with approved test cases (Azure DevOps format).
  * Each test case: one header row (ID, Title) then step rows (Test Step, Step Action, Step Expected).
  */
 function generateApprovedTestCasesCSV(issueData, approvedTestCases, outputPath) {

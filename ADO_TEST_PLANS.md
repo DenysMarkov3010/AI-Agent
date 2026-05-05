@@ -1,4 +1,4 @@
-﻿# Azure DevOps: Test Plans and direct test case analysis
+# Azure DevOps: Test Plans and direct test case analysis
 
 **Where this fits in the overall pipeline:** `[GUIDE.md](GUIDE.md)` (stages 1, 4–5).
 
@@ -130,7 +130,7 @@ npm run ado:export-plan -- 12345
 
 ### 5a. Export Test Cases by tag → CSV (`Test cases/`)
 
-Use this when you want a **local Pixel-style CSV** of every Test Case in the project whose **Tags** field contains a given text (same idea as `[System.Tags] CONTAINS` in WIQL).
+Use this when you want a **local  CSV** of every Test Case in the project whose **Tags** field contains a given text (same idea as `[System.Tags] CONTAINS` in WIQL).
 
 **Flow**
 
@@ -194,7 +194,7 @@ If the query returns **no** work items, any **existing** file at the output path
 
 ## 9. Push approved CSV to Azure DevOps (after Jira approval)
 
-After you approve a checklist or AI test cases and run with `**CHECK_APPROVAL=true`**, the agent writes the same **Pixel / Azure-style CSV** as today (locally + Jira attachment). You can **also** create **Test Case** work items in Azure DevOps from that file.
+After you approve a checklist or AI test cases and run with `**CHECK_APPROVAL=true`**, the agent writes the same **Azure-style CSV** as today (locally + Jira attachment). You can **also** create **Test Case** work items in Azure DevOps from that file.
 
 ### Automatic sync (with approval run)
 
@@ -214,7 +214,7 @@ In the browser the URL looks like:
 `…/{org}/{project}/_testPlans/define?planId=12686&suiteId=14213`  
 
 - `**suiteId**` matches `**ADO_SYNC_SUITE_ID**`, `**-s**`, and the REST API. For **automatic approval sync**, `**planId` in the URL is not used** — use `**ADO_ACTIVE_TEST_PLAN_ID`** for the plan (see §9 *Automatic sync*). For **manual** `ado:sync-csv`, `**planId*`* matches `**ADO_SYNC_PLAN_ID**`, `**-p**`, etc.  
-- The `**org**` / `**project**` path segments (e.g. `YourOrg. / .YourProject.) map to `**ADO_ORG**` / `**ADO_PROJECT**` — do not confuse them with the plan id.
+- The `**org**` / `**project**` path segments (e.g. `YourOrg` / `YourProject`) map to `**ADO_ORG**` / `**ADO_PROJECT**` — do not confuse them with the plan id.
 
 Ways to choose ids:
 
@@ -266,9 +266,9 @@ Optional: `**ADO_SYNC_JIRA_KEY=PROJ-123**` or `**--jira-key PROJ-123**` / `**-j*
 | Variable                                 | Purpose                                                                                                                                                                                                                                                                                     |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ADO_SYNC_APPROVED_CSV`                  | `true` to run sync after approval CSV is written                                                                                                                                                                                                                                            |
-| `ADO_SYNC_BDD_DESCRIPTION`               | Default **on** (`false` / `0` / `no` to disable). When on, **System.Description** gets one BDD-style block: **FEATURE** (prefers parent Jira **summary** when loaded) / **SCENARIO** / **GIVEN** / **WHEN** / **THEN**, built from CSV + optional parent Jira description. **Steps** stay the CSV steps only. |
-| `ADO_SYNC_BDD_JIRA_CONTEXT`              | Default **on**. With `JIRA_*` set, sync loads **parent** Jira (or self if top-level) by key from CSV filename, env, or CSV **ID** column, to fill weak **WHEN**/**THEN**/**GIVEN** from description & acceptance-style bullets. `false` = CSV only. |
-| `ADO_AREA_PATH_PREFIX`                   | If the CSV **Area Path** column is short (e.g. .YourProject.), full ADO path can be `PREFIX\YourProject`                                                                                                                                                                                        |
+| `ADO_SYNC_BDD_FROM_PROMPT`               | Default **on** (`false` / `0` / `no` to disable). When on, **after** each Test Case is created in Azure DevOps, the importer makes one LLM call per work item using the prompt from **TEST_CASE_FORMAT.md → "Prompt: BDD / Gherkin for Azure DevOps Summary"** and writes the resulting Gherkin into **System.Description** (Summary tab → Description). Requires `OPENROUTER_API_KEY`. Mode (`test_case` / `checklist`) is auto-detected per Test Case based on Step Expected fill rate. Failures of BDD generation are non-fatal: a warning is logged and the imported work item is preserved with empty Description. |
+| `ADO_SYNC_BDD_MAX_TOKENS`                | Max tokens for the BDD LLM call per Test Case (default `2000`).                                                                                                                                                                                                                              |
+| `ADO_AREA_PATH_PREFIX`                   | If the CSV **Area Path** column is short (e.g. `YourProject`), full ADO path can be `PREFIX\YourProject`                                                                                                                                                                                        |
 | `ADO_DEFAULT_AREA_PATH`                  | Used when the CSV row has empty Area Path                                                                                                                                                                                                                                                   |
 | `ADO_TEST_CASE_WORK_ITEM_TYPE`           | Defaults to `Test Case` (change if your process renames the type)                                                                                                                                                                                                                           |
 | `ADO_JIRA_TAG_PREFIX`                    | Defaults to `Jira`; tag becomes `Jira:STORY-KEY`                                                                                                                                                                                                                                            |
@@ -292,7 +292,7 @@ Optional: `**ADO_SYNC_JIRA_KEY=PROJ-123**` or `**--jira-key PROJ-123**` / `**-j*
 | `ado-client.js`         | Plans, suites, cases, **WIQL**, get work items, **create work items**, **add cases to suite**, `**listFlatSuitesInPlan`** (suite tree for sync matching) |
 | `ado-plan-tools.js`     | CLI: `list` / `suites` / `export` (optional snapshot)                                                                                                    |
 | `ado-sync-csv.js`       | Parse approved CSV → create Test Cases in Azure DevOps; CLI `ado:sync-csv`                                                                               |
-| `ado-export-tag-csv.js` | WIQL by tag → Pixel CSV in `Test cases/`; CLI `ado:export-tag-csv`                                                                                       |
+| `ado-export-tag-csv.js` | WIQL by tag → CSV in `Test cases/`; CLI `ado:export-tag-csv`                                                                                       |
 | `ADO_TEST_PLANS.md`     | This guide                                                                                                                                               |
 
 

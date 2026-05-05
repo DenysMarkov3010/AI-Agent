@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="AI Test Agent-api-origin" content="__AI Test Agent_API_ORIGIN__" />
-    <title>Update test design — AI Test Agent</title>
+    <meta name="demoagent-api-origin" content="__DEMOAGENT_API_ORIGIN__" />
+    <title>Update test design — DemoAgent</title>
     <link rel="icon" href="/favicon.png" type="image/png" sizes="any" />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -18,7 +18,7 @@
       <header>
         <h1>Update test design</h1>
         <p>
-          Based on <strong>UPDATED_CSV_FLOW.md</strong>. For Step 1, enter the CSV <strong>file name</strong> and click <strong>Add</strong> — the file is copied from <strong>Downloads</strong> into the project folder <code>Updated test cases</code> (set the AI Test Agent path first). <strong>Run</strong> uses this machine (where <code>npm run web</code> runs).
+          Based on <strong>UPDATED_CSV_FLOW.md</strong>. For Step 1, enter the CSV <strong>file name</strong> and click <strong>Add</strong> — the file is copied from <strong>Downloads</strong> into the project folder <code>Updated test cases</code> (set the DemoAgent path first). <strong>Run</strong> uses this machine (where <code>npm run web</code> runs).
         </p>
         <div id="cursorBrowserBanner" class="banner-warn" hidden>
           <strong>Note:</strong> Cursor&rsquo;s embedded browser often <em>cannot reach</em> the local <code>npm run web</code> server (404).
@@ -33,7 +33,7 @@
           <div id="pathRow">
             <label for="projectPath">Project path</label>
             <div class="input-with-btn">
-              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\AI Test Agent" autocomplete="off" />
+              <input type="text" id="projectPath" placeholder="C:\Users\you\OneDrive\Desktop\DemoAgent" autocomplete="off" />
               <button type="button" class="btn btn-secondary" id="pickProjectBtn" title="Native folder dialog (Windows / macOS / zenity)">
                 Browse folder…
               </button>
@@ -62,7 +62,7 @@
         <div class="grid two" style="margin-top: 1rem">
           <div id="jiraRow">
             <label for="jiraKey">Jira Key</label>
-            <input type="text" id="jiraKey" value="FER-123" autocomplete="off" />
+            <input type="text" id="jiraKey" value="PROJ-123" autocomplete="off" />
           </div>
           <div id="csvFileRow">
             <label for="updatedFlowInputFile">CSV file name (required)</label>

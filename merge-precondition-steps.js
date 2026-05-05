@@ -1,6 +1,6 @@
 /**
  * Azure DevOps TCM often stores one logical "Preconditions" block as multiple <step> rows.
- * Merge them into a single step (step 1) so CSV / flows match Pixel style (one Preconditions row).
+ * Merge them into a single step (step 1) so CSV / flows match style (one Preconditions row).
  */
 
 function isTrivialExpected(expected) {

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * Serves ./web + API: native folder picker (same class of UI as system "Open Folder"),
  * Day 1 run (spawn agent). Binds 0.0.0.0 for localhost/Cursor compatibility.
@@ -78,7 +78,7 @@ function json(res, status, obj) {
   return true;
 }
 
-/** Windows: create Desktop .AI Test Agent. shortcut if missing (same as npm run shortcut). */
+/** Windows: create Desktop «AI Test Agent» shortcut if missing (same as npm run shortcut). */
 function maybeEnsureWindowsDesktopShortcut() {
   if (process.platform !== "win32") return;
   const ensureScript = path.join(__dirname, "scripts", "ensure-desktop-shortcut.ps1");
@@ -91,7 +91,7 @@ function maybeEnsureWindowsDesktopShortcut() {
     { cwd: __dirname, windowsHide: true, timeout: 120000 },
     (err, stdout, stderr) => {
       if (err) {
-        console.warn("AI Test Agent: optional desktop shortcut step failed:", err.message || String(err));
+        console.warn("DemoAgent: optional desktop shortcut step failed:", err.message || String(err));
         if (stderr) process.stderr.write(String(stderr));
         return;
       }
@@ -105,7 +105,7 @@ function maybeEnsureWindowsDesktopShortcut() {
 function pickFolderDarwin() {
   const script = [
     "try",
-    "\tset theFolder to choose folder with prompt \"Select the AI Test Agent project folder:\"",
+    "\tset theFolder to choose folder with prompt \"Select the DemoAgent project folder:\"",
     "\treturn POSIX path of theFolder",
     "on error number -128",
     "\treturn \"\"",
@@ -131,7 +131,7 @@ function pickFolderWindows() {
   const psScript = [
     "Add-Type -AssemblyName System.Windows.Forms",
     "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
-    "$d.Description = 'Select the AI Test Agent project folder'",
+    "$d.Description = 'Select the DemoAgent project folder'",
     "$d.ShowNewFolderButton = $false",
     "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
   ].join("; ");
@@ -153,7 +153,7 @@ function pickFolderLinux() {
   try {
     const out = execFileSync(
       "zenity",
-      ["--file-selection", "--directory", "--title=Select AI Test Agent folder", "--modal"],
+      ["--file-selection", "--directory", "--title=Select DemoAgent folder", "--modal"],
       { encoding: "utf8", timeout: 120000 }
     );
     const p = out.trim();
@@ -185,7 +185,7 @@ function pickFolderDarwinAsync() {
   return new Promise((resolve) => {
     const script = [
       "try",
-      "\tset theFolder to choose folder with prompt \"Select the AI Test Agent project folder:\"",
+      "\tset theFolder to choose folder with prompt \"Select the DemoAgent project folder:\"",
       "\treturn POSIX path of theFolder",
       "on error number -128",
       "\treturn \"\"",
@@ -226,7 +226,7 @@ function pickFolderWindowsAsync() {
     const psScript = [
       "Add-Type -AssemblyName System.Windows.Forms",
       "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
-      "$d.Description = 'Select the AI Test Agent project folder'",
+      "$d.Description = 'Select the DemoAgent project folder'",
       "$d.ShowNewFolderButton = $false",
       "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
     ].join("; ");
@@ -261,7 +261,7 @@ function pickFolderLinuxAsync() {
   return new Promise((resolve) => {
     execFile(
       "zenity",
-      ["--file-selection", "--directory", "--title=Select AI Test Agent folder", "--modal"],
+      ["--file-selection", "--directory", "--title=Select DemoAgent folder", "--modal"],
       { encoding: "utf8", timeout: 120000, windowsHide: true },
       (err, stdout) => {
         if (!err && stdout) {
@@ -284,7 +284,7 @@ function pickFolderDialogAsync() {
   return pickFolderLinuxAsync();
 }
 
-/** Merge project root `.env` into env for spawned tools (ADO/Jira keys may only exist there). */
+/** Merge DemoAgent root `.env` into env for spawned tools (ADO/Jira keys may only exist there). */
 function envWithProjectDotenv(abs) {
   const env = { ...process.env };
   const envFile = path.join(abs, ".env");
@@ -384,7 +384,7 @@ function validateProjectDir(abs) {
   }
   const agentJs = path.join(abs, "agent-docs.js");
   if (!fs.existsSync(agentJs)) {
-    return { ok: false, error: "Folder must contain agent-docs.js (AI Test Agent root)" };
+    return { ok: false, error: "Folder must contain agent-docs.js (DemoAgent root)" };
   }
   return { ok: true };
 }
@@ -657,6 +657,8 @@ async function handleApi(req, res) {
     const relatedKeywords = String(body.relatedKeywords || "").trim();
     const generateMode = String(body.generateMode || "checklist");
     const day1Scope = String(body.day1Scope || "2a");
+    const relatedJiraSearch = String(body.relatedJiraSearch || "yes");
+    const testCasesLimitRaw = String(body.testCasesLimit || "").trim().toLowerCase();
     const wantStream = body.stream === true || body.stream === "true";
 
     if (day1Scope !== "2b" && !jiraKey) {
@@ -673,6 +675,13 @@ async function handleApi(req, res) {
     if (jiraKey) env.JIRA_ISSUE_KEY = jiraKey;
     if (generateMode === "testcases") env.GENERATE_MODE = "testcases";
     if (relatedKeywords) env.RELATED_ISSUES_KEYWORDS = relatedKeywords;
+    if (relatedJiraSearch === "no") env.ENABLE_RELATED_ISSUES_SEARCH = "false";
+    if (generateMode === "testcases" && testCasesLimitRaw) {
+      const allowed = new Set(["10", "20", "30", "unlimited"]);
+      if (allowed.has(testCasesLimitRaw)) {
+        env.TEST_CASES_LIMIT = testCasesLimitRaw;
+      }
+    }
 
     const opts = { cwd: abs, env };
 
@@ -1148,7 +1157,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`AI Test Agent web UI → http://127.0.0.1:${PORT}/`);
+  console.log(`DemoAgent web UI → http://127.0.0.1:${PORT}/`);
   console.log(`Listening on 0.0.0.0:${PORT} (local network). Press Ctrl+C to stop.`);
   maybeEnsureWindowsDesktopShortcut();
 });

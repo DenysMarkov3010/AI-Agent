@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Build assets/ai-agent.ico from assets/ai-agent.png (multi-size, Windows-friendly).
  */
 const fs = require("fs");

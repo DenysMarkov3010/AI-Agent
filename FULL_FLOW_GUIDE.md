@@ -1,8 +1,8 @@
-﻿# Guide — QA agent operations (Jira → approval → CSV → Azure DevOps)
+# Guide — QA agent operations (Jira → approval → CSV → Azure DevOps)
 
-This document is the **single operational guide**: setup, single and batch runs, approval, CSV, optional Azure DevOps. Deep-dive reference: `[REFERENCE.md](REFERENCE.md)` (CSV format, architecture, MCP prompts). Azure DevOps APIs: `[ADO_TEST_PLANS.md](ADO_TEST_PLANS.md)`.
+This document is the **single operational guide**: setup, single and batch runs, approval, CSV, optional Azure DevOps. Deep-dive reference: [TEST_CASE_FORMAT.md](TEST_CASE_FORMAT.md) (CSV format, architecture, MCP prompts). Azure DevOps APIs: [ADO_TEST_PLANS.md](ADO_TEST_PLANS.md).
 
-In all examples, replace `**PATH_TO_AI_AGENT`** with your project folder (e.g. `C:\Users\<you>\OneDrive\Desktop\AI Agent`).
+In all examples, replace `**PATH_TO_DEMO_AGENT`** with your project folder (e.g. `C:\Users\<you>\OneDrive\Desktop\DemoAgent`).
 
 **Terminal commands:** **Bash** = macOS, Linux, or Git Bash. **PowerShell** = Windows (use separate lines for `$env:…` assignments).
 
@@ -19,7 +19,7 @@ In all examples, replace `**PATH_TO_AI_AGENT`** with your project folder (e.g. `
 | 1. (Optional) Azure DevOps | You          | Verify PAT: list Test Plans                                                                                 |
 | 2. Day 1 — generate        | Agent        | **Checklist** or **test cases** in Jira (comment on **Test design** QA Sub-task; context from parent story) |
 | 3. Review                  | You          | Jira comment: `APPROVED: 1,2,3` or `APPROVED: all` (must be the first non-empty line)                       |
-| 4. Day 2 — CSV             | Agent        | Pixel / Azure DevOps-style CSV under `**CHECKLIST_OUTPUT_DIR`**, plus attachment + link in Jira             |
+| 4. Day 2 — CSV             | Agent        | Azure DevOps-style CSV under `**CHECKLIST_OUTPUT_DIR`**, plus attachment + link in Jira             |
 | 5. (Optional) ADO          | Agent or you | **Test Case** work items in Azure DevOps built from that CSV                                                |
 
 
@@ -67,14 +67,14 @@ Copy `.env.example` → `.env` and set at minimum:
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 npm install
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 npm install
 ```
 
@@ -87,14 +87,14 @@ Requires `ADO_ORG`, `ADO_PROJECT`, `ADO_PAT` in `.env`. Details: `[ADO_TEST_PLAN
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 npm run ado:list-plans
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 npm run ado:list-plans
 ```
 
@@ -111,14 +111,14 @@ Expected: console lists Test Plans (id and name). If empty or errors, check PAT 
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 JIRA_ISSUE_KEY=PROJ-123 CHECK_APPROVAL=false RELATED_ISSUES_KEYWORDS="payment status,verification dashboard" node agent-docs.js
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 $env:JIRA_ISSUE_KEY="PROJ-123"
 $env:CHECK_APPROVAL="false"
 $env:RELATED_ISSUES_KEYWORDS="payment status,verification dashboard"
@@ -132,7 +132,7 @@ Use `RELATED_ISSUES_KEYWORDS` when you want to control related-issue search per 
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 JIRA_ISSUE_KEY=PROJ-123 CHECK_APPROVAL=false GENERATE_MODE=testcases RELATED_ISSUES_KEYWORDS="payment status,verification dashboard" node agent-docs.js
 ```
 
@@ -153,14 +153,14 @@ Set `BATCH_JQL_CHECKLIST` in `.env` (typically QA Sub-task “Test design” + s
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 CHECK_APPROVAL=false npm run batch
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 $env:CHECK_APPROVAL="false"
 npm run batch
 ```
@@ -194,14 +194,14 @@ Use the same issue key you use to read comments (often the Test design sub-task 
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 JIRA_ISSUE_KEY=PROJ-123 CHECK_APPROVAL=true node agent-docs.js
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 $env:JIRA_ISSUE_KEY="PROJ-123"
 $env:CHECK_APPROVAL="true"
 node agent-docs.js
@@ -214,14 +214,14 @@ node agent-docs.js
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 CHECK_APPROVAL=true npm run batch
 ```
 
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 $env:CHECK_APPROVAL="true"
 npm run batch
 ```
@@ -249,7 +249,7 @@ Run the same commands as **section 4** (`CHECK_APPROVAL=true`). After the CSV is
 **Bash**
 
 ```bash
-cd /path/to/AI Agent
+cd /path/to/DemoAgent
 export ADO_SYNC_JIRA_KEY=PROJ-100
 npm run ado:sync-csv -- -p 6329 -s 6330 /path/to/approved-testcases-PROJ-100.csv
 ```
@@ -257,7 +257,7 @@ npm run ado:sync-csv -- -p 6329 -s 6330 /path/to/approved-testcases-PROJ-100.csv
 **PowerShell**
 
 ```powershell
-cd PATH_TO_AI_AGENT
+cd PATH_TO_DEMO_AGENT
 $env:ADO_SYNC_JIRA_KEY="PROJ-100"
 npm run ado:sync-csv -- --plan-id 6329 --suite-id 6330 "C:\Users\<you>\OneDrive\Desktop\Checklists and Test cases\approved-testcases-PROJ-100.csv"
 ```
@@ -293,9 +293,9 @@ Variables: `[ADO_TEST_PLANS.md](ADO_TEST_PLANS.md)` §9.
 
 Use **two** scheduled tasks (or cron jobs): Day 1 `CHECK_APPROVAL=false`, Day 2 `CHECK_APPROVAL=true`, same `agent-batch.js`; **Start in** = project folder.
 
-**Windows Task Scheduler:** Program `node.exe` (or full path), arguments `C:\path\to\AI Agent\agent-batch.js`, set env `CHECK_APPROVAL` per task.
+**Windows Task Scheduler:** Program `node.exe` (or full path), arguments `C:\path\to\DemoAgent\agent-batch.js`, set env `CHECK_APPROVAL` per task.
 
-**Linux/macOS crontab example:** `0 9 * * * cd /path/to/AI Agent && CHECK_APPROVAL=false /usr/bin/node agent-batch.js >> logs/batch.log 2>&1`
+**Linux/macOS crontab example:** `0 9 * * * cd /path/to/DemoAgent && CHECK_APPROVAL=false /usr/bin/node agent-batch.js >> logs/batch.log 2>&1`
 
 **Logs:** redirect stdout to a daily log file (see PowerShell/Bash examples in older notes). **Summary:** `Batch Summary Archive/batch-summary-YYYY-MM-DD.json`. Rate limiting: ~2s between issues.
 
@@ -308,8 +308,8 @@ Use **two** scheduled tasks (or cron jobs): Day 1 `CHECK_APPROVAL=false`, Day 2 
 
 | Topic                                         | File                                     |
 | --------------------------------------------- | ---------------------------------------- |
-| CSV format, architecture, MCP prompts         | `[REFERENCE.md](REFERENCE.md)`           |
-| Azure DevOps Test Plans, sync, export tag CSV | `[ADO_TEST_PLANS.md](ADO_TEST_PLANS.md)` |
-| Project overview                              | `[README.md](README.md)`                 |
+| CSV format, architecture, MCP prompts         | [TEST_CASE_FORMAT.md](TEST_CASE_FORMAT.md) |
+| Azure DevOps Test Plans, sync, export tag CSV | [ADO_TEST_PLANS.md](ADO_TEST_PLANS.md)     |
+| Project overview                              | [README.md](README.md)                     |
 
 

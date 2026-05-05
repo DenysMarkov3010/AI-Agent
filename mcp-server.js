@@ -45,7 +45,7 @@ async function readReportYaml() {
 
 async function main() {
   const mcpServer = new McpServer({
-    name: "ai-test-agent",
+    name: "demo-qa-agent",
     version: "1.0.0",
   });
 

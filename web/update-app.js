@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Update test design flow — UPDATED_CSV_FLOW.md (agent-update-csv.js)
  */
 
@@ -7,9 +7,9 @@ const $ = (id) => document.getElementById(id);
 const PATH_PLACEHOLDER = "PATH_TO_DEMO_AGENT";
 
 function apiOrigin() {
-  const m = document.querySelector('meta[name="AI Test Agent-api-origin"]');
+  const m = document.querySelector('meta[name="demoagent-api-origin"]');
   const raw = (m && m.getAttribute("content")) || "";
-  if (raw && !raw.includes("__AI Test Agent_API_ORIGIN__")) {
+  if (raw && !raw.includes("__DEMOAGENT_API_ORIGIN__")) {
     return raw.replace(/\/$/, "");
   }
   if (location.protocol === "http:" || location.protocol === "https:") {
@@ -47,7 +47,7 @@ function bashSq(s) {
 }
 
 function cdBash(v) {
-  return v.projectPath === PATH_PLACEHOLDER ? "cd /path/to/AI Test Agent" : `cd ${bashSq(v.projectPath)}`;
+  return v.projectPath === PATH_PLACEHOLDER ? "cd /path/to/DemoAgent" : `cd ${bashSq(v.projectPath)}`;
 }
 
 function cdPs(v) {
@@ -164,7 +164,7 @@ async function lookupCsvInDownloads() {
   const pathOk = v.projectPath !== PATH_PLACEHOLDER && v.projectPath.length > 2;
   if (!pathOk) {
     csvLookupResult = "notfound";
-    csvLookupErrorText = "Set a valid AI Test Agent project path first";
+    csvLookupErrorText = "Set a valid DemoAgent project path first";
     render();
     return;
   }

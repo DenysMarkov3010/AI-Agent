@@ -1,4 +1,4 @@
-﻿# QA MCP Agent (Jira) — Checklists, test cases, CSV
+# QA MCP Agent (Jira) — Checklists, test cases, CSV
 
 The agent reads **Jira** issue descriptions, generates **test checklists** or **test cases** (LLM), and after you comment `APPROVED:` produces a **CSV**. **Confluence** and **Azure DevOps** are optional.
 
@@ -8,7 +8,7 @@ The agent reads **Jira** issue descriptions, generates **test checklists** or **
 |----------|-------------------|
 | **[FULL_FLOW_GUIDE.md](FULL_FLOW_GUIDE.md)** | End-to-end operations: `.env`, single issue, batch, approval, CSV, optional ADO steps, **scheduling**, command cheat sheet |
 | **[ADO_TEST_PLANS.md](ADO_TEST_PLANS.md)** | Azure DevOps: Test Plans, WIQL, `npm run ado:*`, export test cases by tag → `Test cases/`, sync CSV to ADO. **Automatic sync after approval** uses **`ADO_ACTIVE_TEST_PLAN_ID`** and matches **Jira key from the CSV filename** to a suite in that plan; **`ADO_SYNC_PLAN_ID`** is for manual `ado:sync-csv` only (see §9). |
-| **[TEST_CASE_FORMAT.md](TEST_CASE_FORMAT.md)** | Pixel/Azure **CSV format** (examples), **MCP / architecture**, **Cursor prompts**, **`Test cases/`** folder (`ENABLE_TEST_CASES_ANALYSIS`) |
+| **[TEST_CASE_FORMAT.md](TEST_CASE_FORMAT.md)** | Azure **CSV format** (examples), **MCP / architecture**, **Cursor prompts**, **`Test cases/`** folder (`ENABLE_TEST_CASES_ANALYSIS`) |
 | **README.md** (this file) | Entry point and index |
 
 **Shell note:** **Bash** = macOS, Linux, Git Bash · **PowerShell** = Windows.
@@ -27,40 +27,10 @@ Web UI: folder pick uses **two-phase** routes (`GET /__da/folder-pick/start` the
 
 ## Quickest path
 
-### 1. Create `.env`
-
-The `.env` file is **not included in the repo** (it contains secrets). Create it from the template:
-
-```bash
-# Mac / Linux / Git Bash
-cp .env.example .env
-
-# PowerShell (Windows)
-Copy-Item .env.example .env
-```
-
-Then open `.env` and fill in the required values:
-
-| Variable | Where to get it |
-|----------|----------------|
-| `JIRA_BASE_URL` | Your Jira URL, e.g. `https://yourcompany.atlassian.net` |
-| `JIRA_EMAIL` | Your Jira account email |
-| `JIRA_API_TOKEN` | [Jira → Account Settings → Security → API tokens](https://id.atlassian.com/manage-account/security) |
-| `OPENROUTER_API_KEY` | [openrouter.ai/keys](https://openrouter.ai/keys) — free tier available |
-| `JIRA_PROJECT_KEY` | Your Jira project key, e.g. `FER`, `QA`, `PROJ` |
-
-Everything else in `.env` is optional — the defaults in `.env.example` work out of the box.
-
-### 2. Install and run
-
-```bash
-npm install
-```
-
-- **One ticket:** `JIRA_ISSUE_KEY=PROJ-123 node agent-docs.js` (or set `JIRA_ISSUE_KEY` in `.env`).
-- **Daily batch:** `CHECK_APPROVAL=false npm run batch` / `CHECK_APPROVAL=true npm run batch` — details in **FULL_FLOW_GUIDE.md**.
-
-Results: Jira comments, CSV under **`CHECKLIST_OUTPUT_DIR`**, batch summary in **`Batch Summary Archive/`**.
+1. Copy `.env.example` → `.env` and set `JIRA_*`, `OPENROUTER_API_KEY`, `JIRA_PROJECT_KEY` (see **FULL_FLOW_GUIDE.md**).
+2. `npm install`
+3. **One ticket:** `JIRA_ISSUE_KEY=PROJ-123 node agent-docs.js` (or set `JIRA_ISSUE_KEY` in `.env`).
+4. **Daily batch:** `CHECK_APPROVAL=false npm run batch` / `CHECK_APPROVAL=true npm run batch` — details in **FULL_FLOW_GUIDE.md**.
 
 Results: Jira comments, CSV under **`CHECKLIST_OUTPUT_DIR`**, batch summary in **`Batch Summary Archive/`**.
 
