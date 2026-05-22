@@ -14,6 +14,34 @@ DEEP AREA UNDERSTANDING (do this mentally BEFORE you design test cases):
 3. Let that context drive step granularity: steps should reflect real navigation, inputs, and observable outcomes for this area, not vague "validate behavior" wording.
 4. In "reasoning", begin with 3–5 sentences on area/domain context and coverage strategy; then map major requirements to test case titles as already required.`;
 
+/**
+ * Classical test-design techniques — shared between checklist and full test-case generation.
+ * Apply WHERE APPLICABLE (don't force a technique when the story does not call for it).
+ * The model must briefly note in "reasoning" which techniques informed which parts of coverage.
+ */
+const TEST_DESIGN_TECHNIQUES = `
+TEST DESIGN TECHNIQUES (apply WHERE APPLICABLE — not every technique fits every story; in "reasoning", briefly note which techniques informed which items / test cases):
+
+1) Equivalence Partitioning (EP)
+   Partition inputs, outputs, roles, configurations, and environmental factors into equivalence classes (valid vs invalid, or distinct business meanings). For each class that changes expected behavior include one representative item / test case — avoid redundant copies of the same class unless the workflow genuinely differs.
+
+2) Boundary Value Analysis (BVA)
+   For ordered domains (numeric ranges, min/max lengths, pagination limits, thresholds, dates, quotas, counts), defects cluster at edges. Add items / cases for values at and immediately adjacent to boundaries (just below min, at min, just inside valid range, just inside max, at max, just above max) wherever the requirement defines inclusivity or exclusivity.
+
+3) Decision Table Testing
+   When behavior depends on combinations of conditions (e.g. role AND state AND feature flag AND data type), treat it as a decision table: every combination that produces a different action or outcome must be covered by at least one item / case. Impossible or explicitly unsupported combinations may be a single negative item with a clear expected response.
+
+4) State Transition Testing
+   When the work item implies states and transitions (e.g. draft → submitted → approved, online/offline, locked/unlocked, subscription/order status), cover valid transitions, invalid or disallowed transitions, and events received in the wrong state — including guard conditions and error messages.
+
+5) Use Case Testing
+   Derive scenarios from primary user goals: cover the main success path end-to-end, plus alternative and exception flows (validation errors, cancellations, timeouts, payment or save failures, partial completion, concurrency where stated) as separate items / cases with concrete expected outcomes.
+
+GUIDANCE:
+- Do NOT invent a technique application that is not supported by the description or supplementary context.
+- Do NOT add an item / test case solely to "demonstrate a technique" if the requirement does not need it.
+- Prefer combining techniques inside one well-scoped scenario when natural (e.g. a single BVA case can also cover a state transition guard).`;
+
 function generateTestChecklistPrompt(context) {
   const {
     issueKey,
@@ -53,6 +81,7 @@ Labels: ${issueLabels.join(", ")}
 
 Existing Test Documentation:
 ${existingTestCasesJson}
+${TEST_DESIGN_TECHNIQUES}
 
 IMPORTANT: This is a CHANGE REQUEST. Analyze what has changed compared to existing documentation and propose:
 1. Which existing test cases need to be updated (Updated Tests)
@@ -74,7 +103,7 @@ REQUIREMENTS:
       "affectedTestCase": "string (optional, for Updated Tests)"
     }
   ],
-  "reasoning": "string explaining label matching and prioritization",
+  "reasoning": "string explaining label matching, prioritization, and which test design techniques (EP, BVA, decision tables, state transitions, use cases) informed which Updated / New items",
   "changeImpactSummary": "string summarizing the impact of changes"
 }
 
@@ -117,6 +146,7 @@ ${projectTestCasesSection}`;
   }
 
   contextSection += `\n${CHECKLIST_DEEP_AREA_BLOCK}`;
+  contextSection += `\n${TEST_DESIGN_TECHNIQUES}`;
 
   return `You are a QA expert specializing in test design based on user stories and acceptance criteria.
 
@@ -144,7 +174,7 @@ REQUIREMENTS:
       "category": "Functional" | "Negative" | "Boundary" | "Integration"
     }
   ],
-  "reasoning": "string: start with area/domain context summary (3–5 sentences), then label/source matching and prioritization"
+  "reasoning": "string: start with area/domain context summary (3–5 sentences), then label/source matching and prioritization, then briefly state which test design techniques (EP, BVA, decision tables, state transitions, use cases) shaped which checklist categories — only those that were applicable"
 }
 
 IMPORTANT: 
@@ -215,6 +245,7 @@ ${projectTestCasesSection}`;
   }
 
   contextSection += `\n${TESTCASES_DEEP_AREA_BLOCK}`;
+  contextSection += `\n${TEST_DESIGN_TECHNIQUES}`;
 
   const formatSection = testCaseFormatRef
     ? `
@@ -244,7 +275,7 @@ ${limitRequirementBullet}
 - Each test case MUST have: "title", "priority" (1 or 2), "areaPath" (e.g. "YourProject"), "steps" (array).
 - Each step MUST have: "stepNumber" (1-based), "action", "expected" (use "—" or "" for preconditions).
 - First step is usually preconditions: action = "Preconditions: ...", expected = "—".
-- In "reasoning", first summarize area/domain context and how it informed the suite (3–5 sentences); then map major requirements from the story to test case titles; note deliberate gaps only if information was truly missing.
+- In "reasoning", first summarize area/domain context and how it informed the suite (3–5 sentences); then map major requirements from the story to test case titles; then briefly note which test design techniques (EP, BVA, decision tables, state transitions, use cases) shaped which test cases — only the techniques that were genuinely applicable; finally note deliberate gaps only if information was truly missing.
 - Return ONLY valid JSON matching this schema:
 
 {
@@ -271,4 +302,5 @@ ${limitImportantBullet}
 module.exports = {
   generateTestChecklistPrompt,
   generateTestCasesPrompt,
+  TEST_DESIGN_TECHNIQUES,
 };

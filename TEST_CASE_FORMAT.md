@@ -188,9 +188,9 @@ HARD CONSTRAINTS
 | Mode | Input | Output | Mapping rule |
 | --- | --- | --- | --- |
 | `test_case` | Approved CSV with full test cases (Step Action + Step Expected per step) | **One Scenario per test case** | Title → Scenario; Preconditions bullets → `Given`/`And`; action steps → `When`/`And`; expected results → `Then`/`And`; alternating `When → Then → When → Then` is allowed within one Scenario when the TC naturally flows that way. |
-| `checklist` | Approved checklist (CSV step rows with empty Step Expected) | **Curated Feature with grouped Scenarios** — NOT one Scenario per item | Cover the most important verifications; merge adjacent items that form one end-to-end flow; use `Scenario Outline + Examples` for parametric items; coverage target ≈ 30–60% of input items while preserving 100% of distinct verification intents. |
+| `checklist` | **Parent Jira requirement** (summary + description of the parent story / feature of the QA subtask) — the checklist rows themselves are NOT fed to the model | **Curated Feature with grouped Scenarios** — NOT one Scenario per item | Cover the most important verifications implied by the requirement (happy path + key negative / boundary / integration cases). Skip the `# Coverage map` block — there are no item indices to map. Do not invent rules outside the requirement. |
 
-**Where the output lands.** Plain Gherkin text — directly into the Azure DevOps Test Case work item's **Summary tab → Description** field (`System.Description`). The CSV → Azure DevOps importer (`ado-sync-csv.js`) integrates this prompt automatically: after each Test Case is created in ADO, the importer makes **one LLM call per work item**, auto-detects mode per Test Case (`test_case` if Step Expected has content; otherwise `checklist`), wraps the resulting Gherkin in `<pre>...</pre>` HTML and patches `System.Description` of that same work item. The prompt itself must NOT emit markdown fences or HTML — the importer handles wrapping. The behavior is controlled by `ADO_SYNC_BDD_FROM_PROMPT` (default **on**) and requires `OPENROUTER_API_KEY`. LLM failures (timeout, rate limit, parse error) are logged as warnings; the imported work item is preserved with empty Description, the rest of the import continues. To run the prompt manually against a CSV instead of letting the importer call it, copy the `text` block below into your assistant.
+**Where the output lands.** Plain Gherkin text — directly into the Azure DevOps Test Case work item's **Summary tab → Description** field (`System.Description`). The CSV → Azure DevOps importer (`ado-sync-csv.js`) integrates this prompt automatically: after each Test Case is created in ADO, the importer makes **one LLM call per work item**, auto-detects mode per Test Case (`test_case` if Step Expected has content; otherwise `checklist`), wraps the resulting Gherkin in `<pre>...</pre>` HTML and patches `System.Description` of that same work item. For `checklist` mode the importer additionally fetches the parent Jira issue once per run (parent of the QA subtask referenced by the run; if the issue is top-level, the issue itself is used) and feeds its summary + description as the BDD artifact instead of the checklist rows — so the resulting BDD reflects the original requirement, not the terse checklist phrases. If Jira credentials are missing or the fetch fails the importer logs a warning and falls back to feeding the test case rows. The prompt itself must NOT emit markdown fences or HTML — the importer handles wrapping. The behavior is controlled by `ADO_SYNC_BDD_FROM_PROMPT` (default **on**) and requires `OPENROUTER_API_KEY`. LLM failures (timeout, rate limit, parse error) are logged as warnings; the imported work item is preserved with empty Description, the rest of the import continues. To run the prompt manually against a CSV instead of letting the importer call it, copy the `text` block below into your assistant.
 
 **Exclusion from Jira LLM context.** This subsection (and any subsequent BDD-prompt subsection that starts with `## Prompt: BDD / Gherkin ...`) is stripped by `stripBddPromptSectionFromTestCaseFormat()` in `agent-docs.js` and is **not** injected into the test-case generation prompt — it is only used in the **CSV → Azure DevOps** path.
 
@@ -209,8 +209,8 @@ INPUT CONTRACT
 - mode (required): "test_case" | "checklist".
 - artifact (required):
     For mode = "test_case": one or more approved test cases in the project CSV shape — header row (Title, Priority, Area Path, …) + numbered step rows where Step 1 is "Preconditions:" with "- " bullets and steps 2..N have Step Action + Step Expected.
-    For mode = "checklist": ordered list of approved checklist items (Step Action only, Step Expected empty). Items often carry category prefixes such as "Functional:", "Negative:", "Boundary:", "Integration:", "Updated Tests:", "New Tests:".
-- meta (optional): Jira issue key, feature name, target user role, ADO area path. Used only to phrase the Feature header.
+    For mode = "checklist": EITHER an ordered list of approved checklist items (legacy / manual usage), OR — as fed by the CSV → Azure DevOps importer (ado-sync-csv.js) — the PARENT Jira requirement (summary + description + labels) of the QA subtask the checklist was generated for. When the artifact is a parent requirement, treat it as the single source of truth; do not look for, invent, or echo a checklist items list.
+- meta (optional): Jira issue key, feature name, target user role, ADO area path, parent_jira_key. Used only to phrase the Feature header.
 
 OUTPUT CONTRACT
 - Output ONLY valid Gherkin text. No markdown fences. No JSON. No prose commentary outside the Feature block (the only allowed comments are Gherkin "#" lines, used for the Coverage map in checklist mode).
@@ -291,18 +291,20 @@ A) mode = "test_case" — produce ONE Scenario per test case (no merging, no spl
    - Do NOT add Scenarios that are not in the TC. Do NOT collapse a TC into fewer Scenarios.
 
 B) mode = "checklist" — produce a CURATED Feature with the most important Scenarios; do NOT emit one Scenario per item
-   Selection (apply in order):
+   The selection / merging / coverage-map rules below apply when the artifact is an ordered list of checklist items (legacy / manual usage).
+   When the artifact is a PARENT Jira requirement (ado-sync-csv.js default since 2026-05): there are no items to map, so SKIP the "# Coverage map" block, ignore the merging rules below, and instead derive Scenarios directly from the requirement (happy path + key negative / boundary / integration cases the requirement implies). Do not invent rules outside the requirement; do not fabricate or quote a checklist items list.
+   Selection (items-list artifact only, apply in order):
      1. Always cover: every Negative, Boundary, and Integration item; the primary Functional happy path.
      2. Always cover: any item that is the SOLE check for a distinct behavior (no other item covers it).
      3. May skip / merge: trivial cosmetic items, near-duplicates, or items that are sub-points of another item already covered.
-   Merging:
+   Merging (items-list artifact only):
      1. Merge 2+ adjacent items into ONE Scenario when ALL are true:
         - Same category prefix (Functional / Negative / Boundary / Integration / Updated Tests / New Tests).
         - The later items read as a continuation of the earlier (same actor, same flow, no setup reset).
         - The merged Scenario remains coherent: setup → action(s) → observable outcome(s).
      2. When several items share identical structure but differ in data (length, role, status, …), prefer ONE Scenario Outline + Examples table over many near-identical Scenarios.
      3. Do NOT merge across categories (a Negative item must not be merged into a Functional happy path Scenario, and vice versa).
-   Coverage target:
+   Coverage target (items-list artifact only):
      - Aim for 30–60% of input items as final Scenario count, while preserving 100% of distinct verification intents.
      - Begin the Feature with a "# Coverage map" comment block (Gherkin "#" comments) listing which checklist item indices map to which Scenario titles. Use 1-based indices that match the input order.
 
@@ -331,7 +333,8 @@ PHASE 4 — Self-check (silent; if any item fails, fix and re-emit; do not annou
   [ ] Each "And" follows a same-keyword parent — never a bare "And" at the start of a Scenario.
   [ ] No vague assertions ("works correctly", "is OK", "is successful") — every Then/And states an observable fact.
   [ ] mode = "test_case": every input TC maps to exactly one Scenario; no fabricated Scenarios; no merged TCs.
-  [ ] mode = "checklist": Coverage map is present; every Scenario lists ≥ 1 source item index; final Scenario count is 30–60% of input items unless preserving 100% intents required more; no cross-category merges.
+  [ ] mode = "checklist" (items-list artifact): Coverage map is present; every Scenario lists ≥ 1 source item index; final Scenario count is 30–60% of input items unless preserving 100% intents required more; no cross-category merges.
+  [ ] mode = "checklist" (parent-requirement artifact): no Coverage map (there are no item indices); Scenarios are derived from and stay within the requirement; no checklist items are fabricated, echoed or quoted.
   [ ] Domain terms match the artifact verbatim.
   [ ] No HTML, no <pre>, no Markdown — plain Gherkin only.
 

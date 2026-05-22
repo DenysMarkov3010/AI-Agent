@@ -7,6 +7,7 @@ const path = require("path");
 require("dotenv").config();
 
 const { AdoClient } = require("./ado-client");
+const { JiraClient } = require("./jira-client");
 
 const COL = {
   ID: 0,
@@ -237,19 +238,74 @@ function formatTestCaseAsBddArtifact(tc) {
 }
 
 /**
+ * Render the parent Jira requirement as the input artifact text used for BDD generation
+ * when the Test Case being synced was produced from a checklist (mode = "checklist").
+ *
+ * Rationale: checklist items are intent-level, terse phrases. Asking the LLM to
+ * "curate and merge them into Scenarios" produces shallow, repetitive BDD. Feeding the
+ * original parent requirement (the Jira story / feature) gives the model the full
+ * business context to write a meaningful curated Feature.
+ *
+ * @param {{ key?: string, summary?: string, description?: string, labels?: string[] }} parent
+ */
+function formatParentRequirementAsBddArtifact(parent) {
+  const lines = [];
+  const key = String(parent?.key || "").trim();
+  const summary = String(parent?.summary || "").trim();
+  const description = String(parent?.description || "").trim();
+  const labels = Array.isArray(parent?.labels) ? parent.labels.filter(Boolean) : [];
+
+  lines.push("Source: parent Jira requirement");
+  if (key) lines.push(`Parent key: ${key}`);
+  if (summary) lines.push(`Summary: ${summary}`);
+  if (labels.length) lines.push(`Labels: ${labels.join(", ")}`);
+  lines.push("");
+  lines.push("Description:");
+  lines.push(description || "(no description on parent)");
+  return lines.join("\n");
+}
+
+/**
  * Compose the full LLM prompt: the prompt body + a single test case as artifact + meta.
  * @param {object} args
  * @param {string} args.promptBody
- * @param {string} args.mode
+ * @param {"test_case" | "checklist"} args.mode
  * @param {object} args.tc
  * @param {string} [args.jiraKey]
+ * @param {{ key?: string, summary?: string, description?: string, labels?: string[] } | null} [args.parentRequirement]
+ *   When provided AND mode === "checklist", the artifact fed to the prompt is built from this
+ *   parent requirement instead of from the checklist test case rows. Ignored for "test_case" mode.
  */
-function buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey }) {
-  const artifact = formatTestCaseAsBddArtifact(tc);
+function buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey, parentRequirement }) {
+  const useParentArtifact = mode === "checklist" && parentRequirement;
+  const artifact = useParentArtifact
+    ? formatParentRequirementAsBddArtifact(parentRequirement)
+    : formatTestCaseAsBddArtifact(tc);
+
   const metaLines = [];
   if (jiraKey) metaLines.push(`jira_key: ${jiraKey}`);
   if (tc.areaPath) metaLines.push(`area_path: ${tc.areaPath}`);
+  if (useParentArtifact && parentRequirement?.key) {
+    metaLines.push(`parent_jira_key: ${parentRequirement.key}`);
+  }
   const meta = metaLines.length ? metaLines.join("\n") : "(none)";
+
+  const overrideLines = [
+    "ADO-SUMMARY OVERRIDE (this invocation only):",
+    "- Do PHASE 1 and PHASE 2 silently, internally — DO NOT include them in the response.",
+    "- Output ONLY the PHASE 3 artifact: a single Gherkin Feature block.",
+    "- Your response MUST start with the literal token `Feature:` on the very first line.",
+    "- No markdown headings (no `#`, no `##`). No prose. No markdown fences. No JSON.",
+  ];
+
+  if (useParentArtifact) {
+    overrideLines.push(
+      "- Source override for checklist mode: the artifact above is the PARENT Jira requirement (summary + description), NOT a list of checklist items. Treat it as the single source of truth for what to cover.",
+      "- Produce a CURATED Feature with several grouped Scenarios that cover the requirement (happy path + key negative / boundary / integration cases that the requirement implies). Do not invent rules outside the requirement.",
+      "- Skip the `# Coverage map` comment block — there are no item indices to map to.",
+      "- Do not echo or quote the checklist test case title / steps; they are not the source for this run."
+    );
+  }
 
   return [
     promptBody,
@@ -263,11 +319,7 @@ function buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey }) {
     "artifact:",
     artifact,
     "",
-    "ADO-SUMMARY OVERRIDE (this invocation only):",
-    "- Do PHASE 1 and PHASE 2 silently, internally — DO NOT include them in the response.",
-    "- Output ONLY the PHASE 3 artifact: a single Gherkin Feature block.",
-    "- Your response MUST start with the literal token `Feature:` on the very first line.",
-    "- No markdown headings (no `#`, no `##`). No prose. No markdown fences. No JSON.",
+    ...overrideLines,
   ].join("\n");
 }
 
@@ -383,16 +435,114 @@ function wrapGherkinAsAdoDescription(gherkin) {
 }
 
 /**
+ * Build a Jira client from env vars used elsewhere in the project. Returns null when any
+ * of the credentials is missing (the caller falls back to the test-case-based BDD artifact).
+ */
+function buildJiraClientForBddFromEnv() {
+  const baseUrl = process.env.JIRA_BASE_URL || process.env.BASE_URL;
+  const email = process.env.JIRA_EMAIL || process.env.LOGIN_EMAIL;
+  const token = process.env.JIRA_API_TOKEN;
+  if (!baseUrl || !email || !token) return null;
+  try {
+    return new JiraClient(baseUrl, email, token);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build a memoized loader that fetches the parent Jira requirement once per sync run.
+ *
+ * For BDD generation on checklist-mode Test Cases, the BDD prompt is fed the PARENT issue
+ * (story / feature), not the child QA subtask whose key we have in `jiraKey`. If the issue
+ * with `jiraKey` has no parent (top-level), we use the issue itself as the requirement.
+ *
+ * The loader returns null (and logs once) when Jira creds are missing or the fetch fails —
+ * callers then fall back to the checklist-rows artifact, preserving the old behavior.
+ *
+ * @param {string} jiraKey - QA subtask Jira key (e.g. "PROJ-17132").
+ * @returns {() => Promise<{ key: string, summary: string, description: string, labels: string[] } | null>}
+ */
+function createParentRequirementLoader(jiraKey) {
+  let cached = null;
+  let attempted = false;
+  let warned = false;
+
+  return async function loadOnce() {
+    if (cached) return cached;
+    if (attempted) return null;
+    attempted = true;
+
+    if (!jiraKey) {
+      if (!warned) {
+        console.warn(
+          "   ADO BDD: no Jira key passed to sync — checklist BDD will fall back to test case rows"
+        );
+        warned = true;
+      }
+      return null;
+    }
+
+    const client = buildJiraClientForBddFromEnv();
+    if (!client) {
+      if (!warned) {
+        console.warn(
+          "   ADO BDD: JIRA_BASE_URL / JIRA_EMAIL / JIRA_API_TOKEN missing — checklist BDD will fall back to test case rows"
+        );
+        warned = true;
+      }
+      return null;
+    }
+
+    try {
+      const child = await client.getIssueWithExpand(jiraKey);
+      const parentKey = child?.fields?.parent?.key || null;
+      const sourceIssue = parentKey ? await client.getIssueWithExpand(parentKey) : child;
+      const data = client.extractIssueData(sourceIssue);
+      cached = {
+        key: data.key || (parentKey || jiraKey),
+        summary: data.summary || "",
+        description: data.description || "",
+        labels: Array.isArray(data.labels) ? data.labels : [],
+      };
+      console.log(
+        parentKey
+          ? `   ADO BDD: checklist BDD will be generated from parent ${cached.key} (parent of ${jiraKey})`
+          : `   ADO BDD: ${jiraKey} has no parent — using the issue itself as requirement for checklist BDD`
+      );
+      return cached;
+    } catch (e) {
+      if (!warned) {
+        console.warn(
+          `   ADO BDD: could not fetch parent requirement for ${jiraKey} — ${e.message}. Falling back to test case rows.`
+        );
+        warned = true;
+      }
+      return null;
+    }
+  };
+}
+
+/**
  * End-to-end BDD generation for one parsed Test Case. Returns the HTML to put
  * into /fields/System.Description, or null on failure (caller should warn).
  * @param {object} args
  * @param {object} args.tc
  * @param {string} [args.jiraKey]
  * @param {string} args.promptBody
+ * @param {{ key?: string, summary?: string, description?: string, labels?: string[] } | null} [args.parentRequirement]
+ *   When provided and the test case is detected as checklist mode, the BDD input
+ *   artifact is built from the parent Jira requirement instead of the checklist rows.
  */
-async function generateBddDescriptionHtmlForTestCase({ tc, jiraKey, promptBody }) {
+async function generateBddDescriptionHtmlForTestCase({ tc, jiraKey, promptBody, parentRequirement }) {
   const mode = detectBddModeForTestCase(tc);
-  const prompt = buildLlmPromptForTestCaseBdd({ promptBody, mode, tc, jiraKey });
+  const prompt = buildLlmPromptForTestCaseBdd({
+    promptBody,
+    mode,
+    tc,
+    jiraKey,
+    parentRequirement: mode === "checklist" ? parentRequirement || null : null,
+  });
   const raw = await callOpenRouterForBdd(prompt);
   const gherkin = extractGherkinFromLlmResponse(raw);
   if (!gherkin || !/^Feature:/m.test(gherkin)) {
@@ -740,6 +890,9 @@ async function syncApprovedPixelCsvToAzureDevOps(csvFilePath, opts = {}) {
     }
   }
 
+  // Lazy: only hits Jira on the first checklist-mode test case we encounter.
+  const loadParentRequirementForBdd = createParentRequirementLoader(jiraKey);
+
   for (const tc of testCases) {
     const manualSteps = partitionManualStepsForSync(tc.steps);
     if (!manualSteps.length) {
@@ -779,15 +932,25 @@ async function syncApprovedPixelCsvToAzureDevOps(csvFilePath, opts = {}) {
         if (bddEnabled && bddPromptBody) {
           try {
             const tcForBdd = { ...tc, steps: manualSteps };
+            const bddMode = detectBddModeForTestCase(tcForBdd);
+            const parentRequirement =
+              bddMode === "checklist" ? await loadParentRequirementForBdd() : null;
             const descHtml = await generateBddDescriptionHtmlForTestCase({
               tc: tcForBdd,
               jiraKey,
               promptBody: bddPromptBody,
+              parentRequirement,
             });
             await client.updateWorkItem(id, [
               { op: "add", path: "/fields/System.Description", value: descHtml },
             ]);
-            console.log(`   ADO BDD: Description set for work item ${id} — ${tc.title}`);
+            const source =
+              bddMode === "checklist" && parentRequirement
+                ? `from parent ${parentRequirement.key}`
+                : `from ${bddMode}`;
+            console.log(
+              `   ADO BDD: Description set for work item ${id} (${source}) — ${tc.title}`
+            );
           } catch (e) {
             console.warn(
               `   ADO BDD: skipped Description for work item ${id} (${tc.title}) — ${e.message}`

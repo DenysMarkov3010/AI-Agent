@@ -1,4 +1,4 @@
-# Create "AI Test Agent.lnk" on Desktop with custom icon (ai-agent.ico).
+# Create "AI Test Coverage.lnk" on Desktop with custom icon (ai-agent.ico).
 # Run: powershell -ExecutionPolicy Bypass -File .\scripts\create-desktop-shortcut.ps1
 
 $ErrorActionPreference = "Stop"
@@ -7,7 +7,11 @@ $pngPath = Join-Path $ProjectRoot "assets\ai-agent.png"
 $icoPath = Join-Path $ProjectRoot "assets\ai-agent.ico"
 $launcher = Join-Path $ProjectRoot "scripts\launch-ai-agent.ps1"
 $desktop = [Environment]::GetFolderPath("Desktop")
-$lnkPath = Join-Path $desktop "AI Test Agent.lnk"
+$lnkPath = Join-Path $desktop "AI Test Coverage.lnk"
+$legacyLnkPath = Join-Path $desktop "AI Test Agent.lnk"
+if (Test-Path -LiteralPath $legacyLnkPath) {
+    Remove-Item -LiteralPath $legacyLnkPath -Force -ErrorAction SilentlyContinue
+}
 
 if (-not (Test-Path -LiteralPath $pngPath)) {
     Write-Error "Missing icon: $pngPath"
@@ -56,7 +60,7 @@ $Shortcut.TargetPath = "powershell.exe"
 $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherFull`""
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.IconLocation = "$icoFull,0"
-$Shortcut.Description = "AI Test Agent: DemoAgent web UI and browser"
+$Shortcut.Description = "AI Test Coverage: DemoAgent web UI and browser"
 $Shortcut.Save()
 
 Write-Host "Created: $lnkPath"

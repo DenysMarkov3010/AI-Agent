@@ -406,6 +406,123 @@ function parseUpdatedCsvBlocksForAuto(rows) {
   return blocks;
 }
 
+/**
+ * LLMs (especially via OpenRouter free tiers) frequently produce JSON that JSON.parse rejects:
+ *   - trailing commas before `}` / `]`
+ *   - literal newlines / tabs / CR inside string values
+ *   - leading/trailing prose around the actual JSON
+ * This helper applies the safe repairs that don't change semantics. If the parse still fails
+ * (typically because of unescaped `"` inside a value — only the LLM can know where the string
+ * really ends), we dump the full raw response to disk so the user can inspect / re-prompt /
+ * report it, and throw a clear error pointing at that file.
+ */
+function escapeControlCharsInsideJsonStrings(s) {
+  let out = "";
+  let inStr = false;
+  let escapeNext = false;
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (escapeNext) {
+      out += ch;
+      escapeNext = false;
+      continue;
+    }
+    if (ch === "\\") {
+      out += ch;
+      escapeNext = true;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = !inStr;
+      out += ch;
+      continue;
+    }
+    if (inStr) {
+      if (ch === "\n") {
+        out += "\\n";
+        continue;
+      }
+      if (ch === "\r") {
+        out += "\\r";
+        continue;
+      }
+      if (ch === "\t") {
+        out += "\\t";
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
+}
+
+function extractFirstJsonObject(s) {
+  const first = s.indexOf("{");
+  const last = s.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return s.slice(first, last + 1);
+}
+
+function dumpBadLlmResponse(contextLabel, rawResponse, parseError) {
+  const ts = Date.now();
+  const safeLabel = String(contextLabel || "llm")
+    .replace(/[<>:"/\\|?*]/g, "")
+    .replace(/\s+/g, "-");
+  const fileName = `bad-llm-response-${safeLabel}-${ts}.txt`;
+  const filePath = path.join(__dirname, fileName);
+  const header =
+    `# bad-llm-response\n` +
+    `# context: ${contextLabel}\n` +
+    `# timestamp: ${new Date(ts).toISOString()}\n` +
+    `# parse error: ${parseError && parseError.message ? parseError.message : String(parseError)}\n` +
+    `# raw LLM response follows below this line\n` +
+    `# =====================================================\n`;
+  try {
+    fs.writeFileSync(filePath, header + String(rawResponse || ""), "utf8");
+    return filePath;
+  } catch {
+    return null;
+  }
+}
+
+function parseLlmJsonStrict(rawResponse, contextLabel) {
+  let txt = String(rawResponse || "");
+  if (txt.charCodeAt(0) === 0xfeff) txt = txt.slice(1);
+  txt = txt.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+
+  try {
+    return JSON.parse(txt);
+  } catch (_) {
+    /* fall through to repairs */
+  }
+
+  let body = extractFirstJsonObject(txt) || txt;
+  body = body.replace(/,(\s*[}\]])/g, "$1");
+
+  try {
+    return JSON.parse(body);
+  } catch (_) {
+    /* fall through */
+  }
+
+  const repaired = escapeControlCharsInsideJsonStrings(body);
+  try {
+    return JSON.parse(repaired);
+  } catch (finalErr) {
+    const savedPath = dumpBadLlmResponse(contextLabel, rawResponse, finalErr);
+    const where = savedPath ? `\n   Raw LLM response saved to: ${savedPath}` : "";
+    const hint =
+      "\n   Hint: most often the LLM left unescaped \" inside a string value." +
+      "\n   Try re-running, or remove curly/smart quotes (\u201C \u201D \u2018 \u2019) from the source CSV.";
+    const err = new Error(
+      `LLM did not return valid JSON for ${contextLabel}: ${finalErr.message}${where}${hint}`
+    );
+    err.cause = finalErr;
+    err.rawResponsePath = savedPath || null;
+    throw err;
+  }
+}
+
 async function callLLM(prompt, maxTokens = 6000) {
   const fetch = globalThis.fetch || require("node-fetch");
   const models = (process.env.OPENROUTER_MODELS || "openai/gpt-oss-20b:free")
@@ -496,7 +613,12 @@ Existing test cases (from CSV):
 ${JSON.stringify(existingCases, null, 2)}
 
 Output rules:
-- Return ONLY valid JSON (no markdown/code fences).
+- Return ONLY valid JSON (no markdown/code fences, no prose before or after).
+- The response MUST be parseable by JSON.parse on the first try. In particular:
+  * Inside every string value, escape every " as \\" (backslash + quote). Never leave a bare " inside a string.
+  * Use straight ASCII double quotes only. Never use smart/curly quotes (\u201C \u201D \u2018 \u2019) as string delimiters or anywhere else - if the source text contains them, replace them with straight " when copying into JSON.
+  * Never put a literal newline, tab, or carriage return inside a JSON string - use \\n, \\t, \\r.
+  * No trailing commas before } or ].
 - Keep test cases focused and deduplicated.
 - Preserve practical style (clear actions + expected results).
 - Keep Step Expected highly detailed. Do not summarize or shorten specifics (UI labels, limits, counters, exact states/messages). If there are multiple expected sentences, each should be on its own "- " bullet line, while preserving full detail.
@@ -558,7 +680,15 @@ Rules:
 - Use categories Functional, Negative, Boundary, Integration only. Do NOT output Regression.
 - Functional must be the largest group (more items than any other single category).
 
-Return ONLY valid JSON (no markdown/code fences), schema:
+Output rules:
+- Return ONLY valid JSON (no markdown/code fences, no prose before or after).
+- The response MUST be parseable by JSON.parse on the first try. In particular:
+  * Inside every string value, escape every " as \\" (backslash + quote). Never leave a bare " inside a string.
+  * Use straight ASCII double quotes only. Never use smart/curly quotes (\u201C \u201D \u2018 \u2019) as string delimiters or anywhere else - if the source text contains them, replace them with straight " when copying into JSON.
+  * Never put a literal newline, tab, or carriage return inside a JSON string - use \\n, \\t, \\r.
+  * No trailing commas before } or ].
+
+Schema:
 {
   "checklistItems": [
     {
@@ -847,8 +977,8 @@ async function postOneUpdatedTestCaseGroup(
 ) {
   const prompt = buildUpdatedTestCasesPrompt(issueData, [oneCase], segmentMeta);
   const response = await callLLM(prompt, parseInt(process.env.TEST_CASES_MAX_TOKENS || "12000", 10));
-  const cleaned = response.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  const parsed = JSON.parse(cleaned);
+  const ctxLabel = `testcases-${testDesignKey}${nGroups > 1 ? `-seg${i0based + 1}` : ""}`;
+  const parsed = parseLlmJsonStrict(response, ctxLabel);
   if (!parsed.testCases || !Array.isArray(parsed.testCases)) {
     throw new Error("LLM response missing testCases array");
   }
@@ -905,8 +1035,8 @@ async function postOneUpdatedChecklistSegment(
   );
   const prompt = buildUpdatedChecklistPrompt(issueData, seg.items, segmentMeta);
   const response = await callLLM(prompt, 5000);
-  const cleaned = response.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  const parsed = JSON.parse(cleaned);
+  const ctxLabel = `checklist-${testDesignKey}${nSeg > 1 ? `-seg${i0based + 1}` : ""}`;
+  const parsed = parseLlmJsonStrict(response, ctxLabel);
   if (!parsed.checklistItems || !Array.isArray(parsed.checklistItems)) {
     throw new Error("LLM response missing checklistItems array");
   }

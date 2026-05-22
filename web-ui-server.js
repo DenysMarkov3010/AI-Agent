@@ -127,16 +127,27 @@ function pickFolderDarwin() {
   return fs.existsSync(normalized) && fs.statSync(normalized).isDirectory() ? normalized : null;
 }
 
+/**
+ * Windows folder picker.
+ *
+ * Backed by scripts/pick-folder.ps1, which wraps FolderBrowserDialog in a TopMost
+ * owner Form + SetForegroundWindow. Required because the AI Test Agent launcher
+ * starts the tree with `-WindowStyle Hidden` and Node spawns PowerShell with
+ * CREATE_NO_WINDOW; without an explicit owner the dialog opens behind the browser
+ * and the front-end polls /folder-pick/status forever.
+ *
+ * Using `-File` (not `-Command`) avoids stripping the `"user32.dll"` quotes from
+ * the inline P/Invoke signature.
+ */
+const PICK_FOLDER_PS1 = path.join(__dirname, "scripts", "pick-folder.ps1");
+
+function pickFolderWindowsArgs() {
+  return ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", PICK_FOLDER_PS1];
+}
+
 function pickFolderWindows() {
-  const psScript = [
-    "Add-Type -AssemblyName System.Windows.Forms",
-    "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
-    "$d.Description = 'Select the DemoAgent project folder'",
-    "$d.ShowNewFolderButton = $false",
-    "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
-  ].join("; ");
   try {
-    const out = execFileSync("powershell.exe", ["-NoProfile", "-STA", "-Command", psScript], {
+    const out = execFileSync("powershell.exe", pickFolderWindowsArgs(), {
       encoding: "utf8",
       windowsHide: true,
       timeout: 120000,
@@ -223,14 +234,7 @@ function pickFolderDarwinAsync() {
 
 function pickFolderWindowsAsync() {
   return new Promise((resolve) => {
-    const psScript = [
-      "Add-Type -AssemblyName System.Windows.Forms",
-      "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
-      "$d.Description = 'Select the DemoAgent project folder'",
-      "$d.ShowNewFolderButton = $false",
-      "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }",
-    ].join("; ");
-    const child = spawn("powershell.exe", ["-NoProfile", "-STA", "-Command", psScript], { windowsHide: true });
+    const child = spawn("powershell.exe", pickFolderWindowsArgs(), { windowsHide: true });
     let out = "";
     const t = setTimeout(() => {
       try {
