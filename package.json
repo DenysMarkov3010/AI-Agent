@@ -15,7 +15,7 @@
     "update-csv-flow": "node agent-update-csv.js",
     "csv:from-downloads": "node copy-csv-from-downloads.js",
     "web": "node web-ui-server.js",
-    "shortcut": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/create-desktop-shortcut.ps1",
+    "shortcut": "node scripts/desktop-shortcut.js",
     "build:icon": "node scripts/build-icon.js",
     "release:public:init": "node scripts/publish-public.js --init",
     "release:public:dry": "node scripts/publish-public.js --dry-run",

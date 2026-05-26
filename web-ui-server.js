@@ -78,7 +78,7 @@ function json(res, status, obj) {
   return true;
 }
 
-/** Windows: create Desktop «AI Test Agent» shortcut if missing (same as npm run shortcut). */
+/** Windows: create Desktop «AI Test Coverage» shortcut if missing (same as npm run shortcut). */
 function maybeEnsureWindowsDesktopShortcut() {
   if (process.platform !== "win32") return;
   const ensureScript = path.join(__dirname, "scripts", "ensure-desktop-shortcut.ps1");
@@ -89,6 +89,27 @@ function maybeEnsureWindowsDesktopShortcut() {
     ps,
     ["-NoProfile", "-NoLogo", "-ExecutionPolicy", "Bypass", "-File", ensureScript],
     { cwd: __dirname, windowsHide: true, timeout: 120000 },
+    (err, stdout, stderr) => {
+      if (err) {
+        console.warn("DemoAgent: optional desktop shortcut step failed:", err.message || String(err));
+        if (stderr) process.stderr.write(String(stderr));
+        return;
+      }
+      const out = String(stdout || "").trim();
+      if (out) console.log(out);
+    }
+  );
+}
+
+/** macOS: create Desktop «AI Test Coverage.app» if missing (same as npm run shortcut). */
+function maybeEnsureMacDesktopShortcut() {
+  if (process.platform !== "darwin") return;
+  const ensureScript = path.join(__dirname, "scripts", "ensure-desktop-shortcut.sh");
+  if (!fs.existsSync(ensureScript)) return;
+  execFile(
+    "/bin/bash",
+    [ensureScript],
+    { cwd: __dirname, timeout: 120000 },
     (err, stdout, stderr) => {
       if (err) {
         console.warn("DemoAgent: optional desktop shortcut step failed:", err.message || String(err));
@@ -1164,4 +1185,5 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`DemoAgent web UI → http://127.0.0.1:${PORT}/`);
   console.log(`Listening on 0.0.0.0:${PORT} (local network). Press Ctrl+C to stop.`);
   maybeEnsureWindowsDesktopShortcut();
+  maybeEnsureMacDesktopShortcut();
 });
